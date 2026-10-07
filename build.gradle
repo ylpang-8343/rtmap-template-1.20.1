@@ -21,6 +21,13 @@ loom {
 			sourceSet sourceSets.client
 		}
 	}
+
+	// Loom writes the Gradle project name ("rtmap") into .vscode/launch.json on every IDE sync, but the Java
+	// extension names the project after the folder, so the generated configs fail with "not a valid java
+	// project". Keep the hand-corrected launch.json instead of letting Loom overwrite it.
+	runConfigs.configureEach {
+		ideConfigGenerated = false
+	}
 }
 
 fabricApi {

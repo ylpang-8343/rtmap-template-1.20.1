@@ -8,5 +8,6 @@ public class RTMapClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		// Anything touching net.minecraft.client.* must live in the client source set.
 		ClientNetworking.init();
+		ClientDebugCommand.init();
 	}
 }
