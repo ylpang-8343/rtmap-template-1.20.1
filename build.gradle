@@ -11,6 +11,18 @@ repositories {
 	// for more information about repositories.
 }
 
+loom {
+	// Keep net.minecraft.client.* out of the common/server code so the same jar can run on a dedicated server.
+	splitEnvironmentSourceSets()
+
+	mods {
+		"rtmap" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
 fabricApi {
 	configureDataGeneration {
 		client = true

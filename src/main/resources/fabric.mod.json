@@ -3,7 +3,7 @@
 	"id": "rtmap",
 	"version": "${version}",
 	"name": "RTMap",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "A map mod for technical Minecraft players: slime chunks, portal linking, spawn ranges and chunk loading visualization.",
 	"authors": [
 		"Me!"
 	],
@@ -18,12 +18,19 @@
 		"main": [
 			"com.cabbage.rtmap.RTMap"
 		],
+		"client": [
+			"com.cabbage.rtmap.client.RTMapClient"
+		],
 		"fabric-datagen": [
 			"com.cabbage.rtmap.RTMapDataGenerator"
 		]
 	},
 	"mixins": [
-		"rtmap.mixins.json"
+		"rtmap.mixins.json",
+		{
+			"config": "rtmap.client.mixins.json",
+			"environment": "client"
+		}
 	],
 	"depends": {
 		"fabricloader": ">=0.19.5",
