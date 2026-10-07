@@ -60,7 +60,7 @@ Client                                   Server
 
 **Version negotiation:** `negotiated = min(client.protocol, server.protocol)`. If `negotiated < max(client.min_protocol, server.min_protocol)`, the server returns `status = 1`. The client then disables all network features and shows a one-time notice (chat or toast; no modal dialog, no kick).
 
-**Degradation:** If any step fails (missing channel, timeout, incompatible version), the client falls back to client-only mode. Local features such as the minimap, waypoints and measuring are unaffected. The handshake timeout is 5 seconds and is only logged.
+**Degradation:** If any step fails (missing channel, incompatible version, malformed packet), the client stays in client-only mode. Local features such as the minimap, waypoints and measuring are unaffected. Nothing blocks on the handshake, so there is no timeout: until `server_hello` arrives the client simply has no server-provided data.
 
 ## 4. Seed and permissions
 
@@ -106,10 +106,10 @@ On receipt, if `seed` is no longer in `grants`, the client **immediately stops u
 
 ### 4.4 Client-side cache
 
-- Cache key: `world_id` (the UUID sent by the server), not the server address. This keeps multiple worlds behind one address, port changes and domain changes from mixing up seeds.
-- Location: `config/rtmap/seeds.json` (or a data file under the game directory).
-- Manually entered seeds are also stored per `world_id`. If the server does not have this mod, there is no `world_id`, so the key falls back to "server address + port".
-- When authorization is revoked, **only seeds provided by the server are deleted**; manually entered seeds are kept.
+- **A seed provided by a server is kept in memory only and is never written to disk.** It is only usable while the server still grants it, so a disk copy would add nothing except a way to outlive revocation. The client simply asks again on the next join (subject to the rate limit).
+- `world_id` (the UUID sent by the server) identifies the world, not the server address. This keeps multiple worlds behind one address, port changes and domain changes from mixing up data.
+- Manually entered seeds (not implemented yet) will be stored on disk per `world_id`. If the server does not have this mod there is no `world_id`, so the key falls back to "server address + port".
+- When authorization is revoked, **only the seed provided by the server is cleared**; manually entered seeds are kept.
 
 ## 5. Server config and commands
 
@@ -118,16 +118,38 @@ On receipt, if `seed` is no longer in `grants`, the client **immediately stops u
 ```json
 {
   "seed_sharing": false,
-  "seed_request_limit_per_30s": 3
+  "command_permission_level": 3,
+  "seed_request_limit": 3,
+  "seed_request_window_seconds": 30
 }
 ```
 
-Commands (permission level 3, configurable):
+| Key | Default | Allowed range |
+|---|---|---|
+| `seed_sharing` | `false` | boolean |
+| `command_permission_level` | 3 | 2 to 4 |
+| `seed_request_limit` | 3 | 1 to 60 |
+| `seed_request_window_seconds` | 30 | 10 to 3600 |
+
+Commands (the required permission level is `command_permission_level`):
 
 | Command | Effect |
 |---|---|
+| `/rtmap seed_sharing` | Shows the current value |
 | `/rtmap seed_sharing <true\|false>` | Changes and saves the switch, and sends `permissions` to online players |
-| `/rtmap reload` | Reloads the config file, also sending `permissions` |
+| `/rtmap reload` | Reloads the config file, sends `permissions`, and refreshes players' command trees |
+
+### Tamper resistance
+
+Admins can tune these values, and these properties keep anyone else from changing them:
+
+- **Server-only.** The values are read from the server's config directory. No packet reads or writes them, so a client cannot influence them.
+- **Server-side state.** Rate-limit counters live in server memory, keyed by player UUID. Nothing the client sends affects them.
+- **Hard limits.** Out-of-range values are clamped on load. In particular `command_permission_level` can never go below 2, so a bad config cannot let ordinary players run `/rtmap`.
+- **Fail closed.** If the file cannot be parsed, the previous valid settings stay in effect (defaults on first load, where `seed_sharing` is off). Wrong-typed values fall back to their defaults.
+- **Safe writes.** Saving writes a temporary file and then atomically replaces the real one, so a crash cannot leave a half-written file.
+
+Not covered: anyone with access to the server's files or console is an administrator and can change the config. That is by design and cannot be prevented in code.
 
 `world_id` is stored in a `PersistentState` of the overworld and generated randomly on first load. If a world save is copied to a new server, the `world_id` goes with it. To tell copies apart, an administrator can delete that state so a new one is generated.
 
@@ -147,8 +169,14 @@ To add a feature (e.g. `chunk_state`):
 3. Deliver the authorization in `grants`, and notify changes through the `permissions` channel.
 4. On the client, the corresponding layer is not selectable without authorization; the UI shows it greyed out with the reason.
 
-## 8. Open questions
+## 8. Decisions
 
-- Is the command permission level fixed at 3, or read from config?
-- Should the rate-limit parameters be exposed to administrators?
+- The command permission level is read from config (clamped to 2 to 4, default 3).
+- The rate-limit parameters are configurable by administrators, within hard limits (see section 5).
 - The Servux compatibility layer (structure data) lives outside this protocol as a separate implementation and does not use the `rtmap:` channels.
+
+## 9. Not implemented yet
+
+- Manual seed entry and its on-disk storage.
+- Soft integration with `fabric-permissions-api` (node `rtmap.seed`).
+- Packet-level automated tests; only the build and a dedicated-server startup have been checked.

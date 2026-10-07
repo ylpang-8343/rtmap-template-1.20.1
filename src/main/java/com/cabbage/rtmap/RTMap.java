@@ -1,5 +1,8 @@
 package com.cabbage.rtmap;
 
+import com.cabbage.rtmap.config.ServerConfig;
+import com.cabbage.rtmap.server.RTMapCommand;
+import com.cabbage.rtmap.server.ServerNetworking;
 import net.fabricmc.api.ModInitializer;
 
 import net.minecraft.util.Identifier;
@@ -17,11 +20,9 @@ public class RTMap implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
-		LOGGER.info("Hello Fabric world!");
+		ServerConfig.load();
+		ServerNetworking.init();
+		RTMapCommand.init();
 	}
 
 	public static Identifier id(String path) {
