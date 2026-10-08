@@ -1,0 +1,7 @@
+{
+	"key.categories.rtmap": "RTMap",
+	"key.rtmap.open_map": "打开地图",
+	"screen.rtmap.map": "地图",
+	"screen.rtmap.map.unsupported_dimension": "地图暂不支持这个维度。",
+	"screen.rtmap.map.loading": "正在识别当前世界……"
+}

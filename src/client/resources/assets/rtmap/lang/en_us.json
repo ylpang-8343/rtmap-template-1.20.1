@@ -1,0 +1,7 @@
+{
+	"key.categories.rtmap": "RTMap",
+	"key.rtmap.open_map": "Open Map",
+	"screen.rtmap.map": "Map",
+	"screen.rtmap.map.unsupported_dimension": "This dimension is not supported by the map yet.",
+	"screen.rtmap.map.loading": "Identifying this world..."
+}
