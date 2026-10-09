@@ -1,5 +1,6 @@
 package com.cabbage.rtmap.client.map;
 
+import com.cabbage.rtmap.client.config.ClientConfig;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -11,7 +12,10 @@ import org.lwjgl.glfw.GLFW;
 
 /** Wires the map into the game: key binding, chunk events, saving and cleanup. */
 public final class ClientMap {
+	private static final int CONFIG_SAVE_INTERVAL_TICKS = 100;
+
 	private static KeyBinding openKey;
+	private static int ticksSinceConfigSave;
 
 	private ClientMap() {
 	}
@@ -24,6 +28,9 @@ public final class ClientMap {
 		openKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 			"key.rtmap.open_map", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_M, "key.categories.rtmap"));
 
+		ClientConfig.load();
+		Minimap.init();
+
 		ClientChunkEvents.CHUNK_LOAD.register((world, chunk) -> MapUpdater.queue(world, chunk.getPos()));
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -33,6 +40,12 @@ public final class ClientMap {
 				}
 			}
 			MapUpdater.tick(client);
+
+			// Settings changed by key presses (minimap zoom, toggle) are written out every few seconds.
+			if (++ticksSinceConfigSave >= CONFIG_SAVE_INTERVAL_TICKS) {
+				ticksSinceConfigSave = 0;
+				ClientConfig.saveIfDirty();
+			}
 		});
 
 		// Leaving a world: write out unsaved regions and free the textures. MapUpdater also notices a new
@@ -41,6 +54,7 @@ public final class ClientMap {
 
 		// Closing the game from inside a world: make sure the last writes reach the disk.
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+			ClientConfig.saveIfDirty();
 			MapCache.saveAll();
 			MapStorage.flushAndWait();
 		});

@@ -1,7 +1,22 @@
 {
 	"key.categories.rtmap": "RTMap",
 	"key.rtmap.open_map": "打开地图",
+	"key.rtmap.minimap_zoom_in": "小地图放大",
+	"key.rtmap.minimap_zoom_out": "小地图缩小",
+	"key.rtmap.toggle_minimap": "显示/隐藏小地图",
 	"screen.rtmap.map": "地图",
+	"screen.rtmap.map.settings": "地图设置",
 	"screen.rtmap.map.unsupported_dimension": "地图暂不支持这个维度。",
-	"screen.rtmap.map.loading": "正在识别当前世界……"
+	"screen.rtmap.map.loading": "正在识别当前世界……",
+	"screen.rtmap.settings": "地图设置",
+	"option.rtmap.minimap": "小地图",
+	"option.rtmap.corner": "位置",
+	"option.rtmap.corner.top_left": "左上角",
+	"option.rtmap.corner.top_right": "右上角",
+	"option.rtmap.corner.bottom_left": "左下角",
+	"option.rtmap.corner.bottom_right": "右下角",
+	"option.rtmap.size": "小地图大小",
+	"option.rtmap.rotate": "随玩家旋转",
+	"option.rtmap.coordinates": "显示坐标",
+	"layer.rtmap.slime_chunks": "史莱姆区块"
 }

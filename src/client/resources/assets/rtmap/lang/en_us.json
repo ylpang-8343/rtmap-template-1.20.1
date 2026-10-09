@@ -1,7 +1,22 @@
 {
 	"key.categories.rtmap": "RTMap",
 	"key.rtmap.open_map": "Open Map",
+	"key.rtmap.minimap_zoom_in": "Minimap Zoom In",
+	"key.rtmap.minimap_zoom_out": "Minimap Zoom Out",
+	"key.rtmap.toggle_minimap": "Toggle Minimap",
 	"screen.rtmap.map": "Map",
+	"screen.rtmap.map.settings": "Map Settings",
 	"screen.rtmap.map.unsupported_dimension": "This dimension is not supported by the map yet.",
-	"screen.rtmap.map.loading": "Identifying this world..."
+	"screen.rtmap.map.loading": "Identifying this world...",
+	"screen.rtmap.settings": "Map Settings",
+	"option.rtmap.minimap": "Minimap",
+	"option.rtmap.corner": "Position",
+	"option.rtmap.corner.top_left": "Top Left",
+	"option.rtmap.corner.top_right": "Top Right",
+	"option.rtmap.corner.bottom_left": "Bottom Left",
+	"option.rtmap.corner.bottom_right": "Bottom Right",
+	"option.rtmap.size": "Minimap Size",
+	"option.rtmap.rotate": "Rotate With Player",
+	"option.rtmap.coordinates": "Show Coordinates",
+	"layer.rtmap.slime_chunks": "Slime Chunks"
 }
