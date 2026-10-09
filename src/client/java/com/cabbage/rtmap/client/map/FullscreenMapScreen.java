@@ -19,15 +19,16 @@ import net.minecraft.util.math.MathHelper;
  * Buttons on the left switch layers on and off; the button at the top right opens the map settings.
  */
 public final class FullscreenMapScreen extends Screen {
-	// 0.01 is about where the coarsest overview level (MapCache.MAX_LEVEL) stops having enough detail.
+	// Zoom is measured in real screen pixels per block, so "1.00x" is one pixel per block whatever the GUI scale
+	// is. 0.01 is about where the coarsest overview level (MapCache.MAX_LEVEL) stops having enough detail.
 	private static final double MIN_ZOOM = 0.01;
-	private static final double MAX_ZOOM = 16.0;
+	private static final double MAX_ZOOM = 32.0;
 
 	private static final int BUTTON_WIDTH = 120;
 	private static final int BUTTON_HEIGHT = 20;
 	private static final int BUTTON_GAP = 2;
 
-	// Camera center in block coordinates, and screen pixels per block.
+	// Camera center in block coordinates, and real screen pixels per block.
 	private double cameraX;
 	private double cameraZ;
 	private double zoom = 1.0;
@@ -69,12 +70,17 @@ public final class FullscreenMapScreen extends Screen {
 		return false;
 	}
 
+	/** GUI pixels per block; the widgets and layers work in GUI pixels. */
+	private double guiZoom() {
+		return zoom / MapRenderer.guiScale();
+	}
+
 	private double worldX(double screenX) {
-		return cameraX + (screenX - width / 2.0) / zoom;
+		return cameraX + (screenX - width / 2.0) / guiZoom();
 	}
 
 	private double worldZ(double screenY) {
-		return cameraZ + (screenY - height / 2.0) / zoom;
+		return cameraZ + (screenY - height / 2.0) / guiZoom();
 	}
 
 	@Override
@@ -107,16 +113,17 @@ public final class FullscreenMapScreen extends Screen {
 	}
 
 	private void drawMap(DrawContext context, ClientWorld world) {
-		double halfWidth = width / 2.0 / zoom;
-		double halfHeight = height / 2.0 / zoom;
+		double guiZoom = guiZoom();
+		double halfWidth = width / 2.0 / guiZoom;
+		double halfHeight = height / 2.0 / guiZoom;
 
 		MatrixStack matrices = context.getMatrices();
 		matrices.push();
 		matrices.translate(width / 2.0, height / 2.0, 0);
 
 		MapCache.beginFrame();
-		MapRenderer.drawTiles(context, world, cameraX, cameraZ, zoom, halfWidth, halfHeight);
-		MapLayers.renderAll(context, new LayerView(world, cameraX, cameraZ, zoom, halfWidth, halfHeight, false));
+		MapRenderer.drawTiles(context, world, cameraX, cameraZ, guiZoom, halfWidth, halfHeight);
+		MapLayers.renderAll(context, new LayerView(world, cameraX, cameraZ, guiZoom, halfWidth, halfHeight, false));
 
 		matrices.pop();
 	}
@@ -135,8 +142,8 @@ public final class FullscreenMapScreen extends Screen {
 
 	@Override
 	public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-		cameraX -= deltaX / zoom;
-		cameraZ -= deltaY / zoom;
+		cameraX -= deltaX / guiZoom();
+		cameraZ -= deltaY / guiZoom();
 		return true;
 	}
 
@@ -146,8 +153,8 @@ public final class FullscreenMapScreen extends Screen {
 		double anchorX = worldX(mouseX);
 		double anchorZ = worldZ(mouseY);
 		zoom = MathHelper.clamp(zoom * Math.pow(1.25, amount), MIN_ZOOM, MAX_ZOOM);
-		cameraX = anchorX - (mouseX - width / 2.0) / zoom;
-		cameraZ = anchorZ - (mouseY - height / 2.0) / zoom;
+		cameraX = anchorX - (mouseX - width / 2.0) / guiZoom();
+		cameraZ = anchorZ - (mouseY - height / 2.0) / guiZoom();
 		return true;
 	}
 

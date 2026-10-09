@@ -3,10 +3,13 @@ package com.cabbage.rtmap.client.map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.cabbage.rtmap.RTMap;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.util.Identifier;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 
 /**
  * One square of the map, {@value #SIZE} blocks on a side (32x32 chunks), with one pixel per block.
@@ -30,8 +33,16 @@ public final class MapRegion {
 
 	public MapRegion() {
 		MinecraftClient.getInstance().getTextureManager().registerTexture(id, texture);
-		// Crisp pixels, no blur and no mipmaps.
-		texture.setFilter(false, false);
+
+		// Zoomed in, every block stays a crisp square (nearest). Zoomed out, a texel is smaller than a screen
+		// pixel, so blend neighbours (linear) instead of dropping most of them, which is what makes a distant
+		// map look noisy. The map picks a level whose texels are at least half a pixel, so this never needs
+		// mipmaps. Setting the filter binds the texture, so the parameters below apply to it.
+		texture.setFilter(true, false);
+		RenderSystem.texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+		// Without clamping, linear filtering at a tile's edge would blend in the opposite edge.
+		RenderSystem.texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+		RenderSystem.texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
 	}
 
 	public Identifier id() {

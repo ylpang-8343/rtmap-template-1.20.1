@@ -2,6 +2,7 @@ package com.cabbage.rtmap.client.map.layer;
 
 import java.util.OptionalLong;
 
+import com.cabbage.rtmap.client.map.MapRenderer;
 import com.cabbage.rtmap.client.network.ClientSession;
 import com.cabbage.rtmap.world.SlimeChunks;
 import net.minecraft.client.gui.DrawContext;
@@ -12,10 +13,10 @@ import net.minecraft.world.World;
  * Hidden when zoomed out too far, where it would be thousands of chunks and each one smaller than a screen pixel.
  */
 public final class SlimeChunkLayer implements MapLayer {
-	/** Below this zoom (pixels per block) the layer is not drawn. */
-	private static final double MIN_ZOOM = 0.25;
+	/** Below this zoom (real screen pixels per block) the layer is not drawn. */
+	private static final double MIN_ZOOM = 0.5;
 	/** Safety net against a pathological view size. */
-	private static final int MAX_CHUNKS_IN_VIEW = 60_000;
+	private static final int MAX_CHUNKS_IN_VIEW = 80_000;
 	private static final int COLOR = 0x6055FF55;
 
 	// Which chunks are slime chunks only changes when the visible chunk range or the seed does.
@@ -36,7 +37,7 @@ public final class SlimeChunkLayer implements MapLayer {
 	@Override
 	public void render(DrawContext context, LayerView view) {
 		OptionalLong seed = ClientSession.seed();
-		if (seed.isEmpty() || view.world().getRegistryKey() != World.OVERWORLD || view.zoom() < MIN_ZOOM) {
+		if (seed.isEmpty() || view.world().getRegistryKey() != World.OVERWORLD || view.zoom() * MapRenderer.guiScale() < MIN_ZOOM) {
 			return;
 		}
 

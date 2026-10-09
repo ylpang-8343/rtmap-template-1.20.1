@@ -1,6 +1,7 @@
 package com.cabbage.rtmap.client.map;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
@@ -10,20 +11,33 @@ public final class MapRenderer {
 	private MapRenderer() {
 	}
 
+	/** Real screen pixels per GUI pixel (the GUI scale setting). */
+	public static double guiScale() {
+		return MinecraftClient.getInstance().getWindow().getScaleFactor();
+	}
+
 	/**
 	 * Draws the map around ({@code centerX}, {@code centerZ}). The caller must already have moved the origin to the
 	 * middle of the view (and rotated it, if wanted) and call {@link MapCache#beginFrame()} once per frame.
 	 *
-	 * @param zoom       screen pixels per block
+	 * @param zoom       GUI pixels per block
 	 * @param halfWidth  half the visible width in blocks (be generous if the view is rotated)
 	 * @param halfHeight half the visible height in blocks
 	 */
 	public static void drawTiles(DrawContext context, ClientWorld world, double centerX, double centerZ, double zoom,
 		double halfWidth, double halfHeight) {
-		// Pick the coarsest overview level whose pixels are still at least one screen pixel wide, so the number
-		// of tiles on screen stays small however far out we are.
-		int level = Math.max(0, Math.min(MapCache.MAX_LEVEL, (int) Math.ceil(-Math.log(zoom) / Math.log(2))));
+		// What matters for sharpness is real screen pixels, not GUI pixels: at GUI scale 6 one GUI pixel is 36 real
+		// ones. Pick the coarsest level whose texels are still at most one real pixel wide. The texels are then
+		// between half a pixel and one pixel, so linear filtering has at most 2:1 to blend and nothing is blocky.
+		double pixelsPerBlock = zoom * guiScale();
+		int level = Math.max(0, Math.min(MapCache.MAX_LEVEL, (int) Math.floor(-Math.log(pixelsPerBlock) / Math.log(2))));
 		int tileBlocks = MapRegion.SIZE << level;
+
+		// Keep the map on whole screen pixels, otherwise every texel is resampled at a fractional offset while
+		// panning and the picture shimmers and softens.
+		double snap = guiScale() * zoom;
+		centerX = Math.round(centerX * snap) / snap;
+		centerZ = Math.round(centerZ * snap) / snap;
 
 		int firstX = Math.floorDiv((int) Math.floor(centerX - halfWidth), tileBlocks);
 		int lastX = Math.floorDiv((int) Math.floor(centerX + halfWidth), tileBlocks);
