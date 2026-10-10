@@ -4,6 +4,10 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+import com.cabbage.rtmap.client.network.ManualSeed;
+import com.cabbage.rtmap.client.portal.PortalScanner;
+import com.cabbage.rtmap.client.portal.PortalStore;
+import com.cabbage.rtmap.client.waypoint.WaypointStore;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
 import net.minecraft.client.world.ClientWorld;
@@ -48,7 +52,13 @@ public final class MapUpdater {
 		storageReady = false;
 		ticks = 0;
 		trackedConnection = null;
-		// The cache must be flushed while the storage path still points at its world.
+		// Both must be flushed while the storage path still points at their world.
+		PortalStore.saveIfDirty();
+		PortalStore.clear();
+		PortalScanner.reset();
+		WaypointStore.saveIfDirty();
+		WaypointStore.clear();
+		ManualSeed.unload();
 		MapCache.clear();
 		MapStorage.reset();
 	}
@@ -77,6 +87,9 @@ public final class MapUpdater {
 		}
 		if (!storageReady) {
 			storageReady = true;
+			PortalStore.load(MapStorage.currentWorldDir());
+			WaypointStore.load(MapStorage.currentWorldDir());
+			ManualSeed.load(MapStorage.currentWorldDir());
 			queueLoadedChunksAround(client, world);
 		}
 		MapCache.tick();
@@ -121,6 +134,8 @@ public final class MapUpdater {
 			for (int dz = -radius; dz <= radius; dz++) {
 				if (world.getChunkManager().getWorldChunk(center.x + dx, center.z + dz) != null) {
 					PENDING.add(new ChunkPos(center.x + dx, center.z + dz));
+					// Chunks that loaded before the world was identified were not scanned for portals either.
+					PortalScanner.queue(world, new ChunkPos(center.x + dx, center.z + dz));
 				}
 			}
 		}

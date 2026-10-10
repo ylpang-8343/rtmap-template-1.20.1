@@ -9,6 +9,8 @@ import net.minecraft.client.gui.DrawContext;
 public final class MapLayers {
 	private static final List<MapLayer> LAYERS = List.of(
 		new SlimeChunkLayer(),
+		new PortalLayer(),
+		new WaypointLayer(),
 		new PlayerLayer()
 	);
 
@@ -22,6 +24,16 @@ public final class MapLayers {
 
 	public static boolean isEnabled(MapLayer layer) {
 		return !layer.toggleable() || ClientConfig.isLayerEnabled(layer.id(), layer.defaultEnabled());
+	}
+
+	/** Whether the layer with this id exists and is switched on. */
+	public static boolean isEnabled(String id) {
+		for (MapLayer layer : LAYERS) {
+			if (layer.id().equals(id)) {
+				return isEnabled(layer);
+			}
+		}
+		return false;
 	}
 
 	public static void setEnabled(MapLayer layer, boolean enabled) {

@@ -80,6 +80,11 @@ public final class MapStorage {
 		return worldDir != null;
 	}
 
+	/** The directory of the current world, or null until it has been identified. */
+	public static Path currentWorldDir() {
+		return worldDir;
+	}
+
 	/** Works out which world we are in. Returns true once the world is known. */
 	public static boolean tick(MinecraftClient client) {
 		if (worldDir != null) {

@@ -55,6 +55,20 @@ public final class ClientConfig {
 	private static int minimapZoomIndex = 3;
 	private static boolean minimapRotate = false;
 	private static boolean showCoordinates = true;
+	private static boolean showConvertedCoordinates = true;
+	private static boolean showOtherDimensionWaypoints = true;
+	private static boolean worldWaypoints = true;
+	private static boolean worldBeams = true;
+	private static boolean showDistance = true;
+	private static boolean autoHideLabels = true;
+	/** A beam is not drawn when the player is closer than this many blocks (horizontally). */
+	private static int beamMinDistance = 4;
+	/** Waypoints further away than this are not drawn in the world; 0 means no limit. */
+	private static int worldMaxDistance = 0;
+	private static boolean createDeathWaypoints = true;
+	private static int deathWaypointRemoveDistance = 3;
+	/** {x} {y} {z} are the block; {cx} {cz} its centre; {dim} the dimension id; {name} the waypoint name. */
+	private static String teleportCommand = "execute in {dim} run tp @s {cx} {y} {cz}";
 	private static final Map<String, Boolean> LAYERS = new HashMap<>();
 
 	private static boolean dirty;
@@ -117,6 +131,84 @@ public final class ClientConfig {
 		dirty = true;
 	}
 
+	/** Show the matching overworld/nether coordinates next to the current ones. */
+	public static boolean showConvertedCoordinates() {
+		return showConvertedCoordinates;
+	}
+
+	public static void setShowConvertedCoordinates(boolean value) {
+		showConvertedCoordinates = value;
+		dirty = true;
+	}
+
+	/** Show the other dimension's waypoints, converted, on the map. */
+	public static boolean showOtherDimensionWaypoints() {
+		return showOtherDimensionWaypoints;
+	}
+
+	public static void setShowOtherDimensionWaypoints(boolean value) {
+		showOtherDimensionWaypoints = value;
+		dirty = true;
+	}
+
+	public static boolean worldWaypoints() {
+		return worldWaypoints;
+	}
+
+	public static void setWorldWaypoints(boolean value) {
+		worldWaypoints = value;
+		dirty = true;
+	}
+
+	public static boolean worldBeams() {
+		return worldBeams;
+	}
+
+	public static void setWorldBeams(boolean value) {
+		worldBeams = value;
+		dirty = true;
+	}
+
+	public static boolean showDistance() {
+		return showDistance;
+	}
+
+	public static void setShowDistance(boolean value) {
+		showDistance = value;
+		dirty = true;
+	}
+
+	public static boolean autoHideLabels() {
+		return autoHideLabels;
+	}
+
+	public static int beamMinDistance() {
+		return beamMinDistance;
+	}
+
+	public static int worldMaxDistance() {
+		return worldMaxDistance;
+	}
+
+	public static boolean createDeathWaypoints() {
+		return createDeathWaypoints;
+	}
+
+	public static void setCreateDeathWaypoints(boolean value) {
+		createDeathWaypoints = value;
+		dirty = true;
+	}
+
+	/** Distance in blocks at which a death waypoint removes itself when the player comes back. */
+	public static int deathWaypointRemoveDistance() {
+		return deathWaypointRemoveDistance;
+	}
+
+	/** The command sent to teleport to a waypoint, without the leading slash. */
+	public static String teleportCommand() {
+		return teleportCommand;
+	}
+
 	public static boolean isLayerEnabled(String id, boolean defaultValue) {
 		return LAYERS.getOrDefault(id, defaultValue);
 	}
@@ -158,6 +250,17 @@ public final class ClientConfig {
 			minimapZoomIndex = Math.max(0, Math.min(MINIMAP_ZOOMS.length - 1, readInt(obj, "minimap_zoom_index", minimapZoomIndex)));
 			minimapRotate = readBoolean(obj, "minimap_rotate", minimapRotate);
 			showCoordinates = readBoolean(obj, "show_coordinates", showCoordinates);
+			showConvertedCoordinates = readBoolean(obj, "show_converted_coordinates", showConvertedCoordinates);
+			showOtherDimensionWaypoints = readBoolean(obj, "show_other_dimension_waypoints", showOtherDimensionWaypoints);
+			worldWaypoints = readBoolean(obj, "world_waypoints", worldWaypoints);
+			worldBeams = readBoolean(obj, "world_beams", worldBeams);
+			showDistance = readBoolean(obj, "world_show_distance", showDistance);
+			autoHideLabels = readBoolean(obj, "world_auto_hide_labels", autoHideLabels);
+			beamMinDistance = Math.max(0, Math.min(64, readInt(obj, "beam_min_distance", beamMinDistance)));
+			worldMaxDistance = Math.max(0, Math.min(10000, readInt(obj, "world_max_distance", worldMaxDistance)));
+			createDeathWaypoints = readBoolean(obj, "create_death_waypoints", createDeathWaypoints);
+			deathWaypointRemoveDistance = Math.max(2, Math.min(64, readInt(obj, "death_waypoint_remove_distance", deathWaypointRemoveDistance)));
+			teleportCommand = readString(obj, "teleport_command", teleportCommand);
 
 			LAYERS.clear();
 			JsonElement layers = obj.get("layers");
@@ -187,6 +290,17 @@ public final class ClientConfig {
 		obj.addProperty("minimap_zoom_index", minimapZoomIndex);
 		obj.addProperty("minimap_rotate", minimapRotate);
 		obj.addProperty("show_coordinates", showCoordinates);
+		obj.addProperty("show_converted_coordinates", showConvertedCoordinates);
+		obj.addProperty("show_other_dimension_waypoints", showOtherDimensionWaypoints);
+		obj.addProperty("world_waypoints", worldWaypoints);
+		obj.addProperty("world_beams", worldBeams);
+		obj.addProperty("world_show_distance", showDistance);
+		obj.addProperty("world_auto_hide_labels", autoHideLabels);
+		obj.addProperty("beam_min_distance", beamMinDistance);
+		obj.addProperty("world_max_distance", worldMaxDistance);
+		obj.addProperty("create_death_waypoints", createDeathWaypoints);
+		obj.addProperty("death_waypoint_remove_distance", deathWaypointRemoveDistance);
+		obj.addProperty("teleport_command", teleportCommand);
 		JsonObject layers = new JsonObject();
 		LAYERS.forEach(layers::addProperty);
 		obj.add("layers", layers);
@@ -227,6 +341,17 @@ public final class ClientConfig {
 		} catch (RuntimeException e) {
 			return fallback;
 		}
+	}
+
+	private static String readString(JsonObject obj, String key, String fallback) {
+		JsonElement element = obj.get(key);
+		if (element != null && element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+			String value = element.getAsString().trim();
+			// A leading slash is allowed in the file; the game wants the command without it.
+			value = value.startsWith("/") ? value.substring(1) : value;
+			return value.isEmpty() ? fallback : value;
+		}
+		return fallback;
 	}
 
 	private static Corner readCorner(JsonObject obj, String key, Corner fallback) {

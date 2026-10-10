@@ -4,6 +4,8 @@ import com.cabbage.rtmap.client.config.ClientConfig;
 import com.cabbage.rtmap.client.config.ClientConfig.Corner;
 import com.cabbage.rtmap.client.map.layer.LayerView;
 import com.cabbage.rtmap.client.map.layer.MapLayers;
+import com.cabbage.rtmap.client.waypoint.DimensionScale;
+import com.cabbage.rtmap.client.waypoint.Waypoints;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
@@ -79,7 +81,10 @@ public final class Minimap {
 		boolean coordinates = ClientConfig.showCoordinates();
 
 		int x = corner.isLeft() ? MARGIN : context.getScaledWindowWidth() - size - MARGIN;
-		int textSpace = coordinates ? TEXT_HEIGHT + 2 : 0;
+		String dimension = Waypoints.dimensionId(world);
+		String other = DimensionScale.counterpart(dimension);
+		boolean converted = coordinates && other != null && ClientConfig.showConvertedCoordinates();
+		int textSpace = coordinates ? (converted ? 2 : 1) * TEXT_HEIGHT + 2 : 0;
 		int y;
 		if (corner.isTop()) {
 			y = MARGIN + (corner == Corner.TOP_RIGHT ? statusEffectHeight(player) : 0);
@@ -91,7 +96,7 @@ public final class Minimap {
 		context.fill(x - 1, y - 1, x + size + 1, y + size + 1, BORDER_COLOR);
 		context.fill(x, y, x + size, y + size, BACKGROUND_COLOR);
 
-		if (MapStorage.isResolved() && !world.getDimension().hasCeiling()) {
+		if (MapStorage.isResolved()) {
 			drawMap(context, client, world, player, tickDelta, x, y, size);
 		}
 
@@ -102,6 +107,14 @@ public final class Minimap {
 			// Below the map normally; the bottom corners reserved room for it, the top corners put it underneath.
 			int textY = y + size + 3;
 			context.drawTextWithShadow(client.textRenderer, Text.literal(text), textX, textY, 0xFFFFFF);
+
+			if (converted) {
+				Text otherText = Text.translatable("minimap.rtmap.converted", Waypoints.dimensionName(other),
+					DimensionScale.convert(player.getBlockX(), dimension, other),
+					DimensionScale.convert(player.getBlockZ(), dimension, other));
+				int otherX = x + (size - client.textRenderer.getWidth(otherText)) / 2;
+				context.drawTextWithShadow(client.textRenderer, otherText, otherX, textY + TEXT_HEIGHT, 0xFFD27F);
+			}
 		}
 	}
 
@@ -120,14 +133,19 @@ public final class Minimap {
 		MatrixStack matrices = context.getMatrices();
 		matrices.push();
 		matrices.translate(x + half, y + half, 0);
+		float rotation = 0f;
 		if (rotate) {
 			// Turn the map so that the way the player faces points up.
-			matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(180f - player.getYaw(tickDelta)));
+			rotation = 180f - player.getYaw(tickDelta);
+			matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(rotation));
 		}
 
 		MapCache.beginFrame();
-		MapRenderer.drawTiles(context, world, position.x, position.z, zoom, halfBlocks, halfBlocks);
-		MapLayers.renderAll(context, new LayerView(world, position.x, position.z, zoom, halfBlocks, halfBlocks, true));
+		// There is no terrain view of dimensions with a roof (the nether) yet, but waypoints and portals still show.
+		if (!world.getDimension().hasCeiling()) {
+			MapRenderer.drawTiles(context, world, position.x, position.z, zoom, halfBlocks, halfBlocks);
+		}
+		MapLayers.renderAll(context, new LayerView(world, position.x, position.z, zoom, halfBlocks, halfBlocks, true, rotation));
 
 		matrices.pop();
 		context.disableScissor();

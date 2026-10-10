@@ -154,7 +154,7 @@ public final class ClientNetworking {
 
 	private static void requestSeedIfGranted() {
 		if (!ClientSession.grants().contains(RTMapChannels.FEATURE_SEED)
-			|| ClientSession.seed().isPresent()
+			|| ClientSession.hasProvidedSeed()
 			|| ClientSession.seedRequestPending()
 			|| !ClientPlayNetworking.canSend(RTMapChannels.SEED_REQUEST)) {
 			return;

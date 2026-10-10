@@ -19,7 +19,9 @@ public record LayerView(
 	/** Half the visible width and height, in blocks. */
 	double halfWidthBlocks,
 	double halfHeightBlocks,
-	boolean minimap
+	boolean minimap,
+	/** How far the view has been turned, in degrees; a layer undoes it to keep icons and text upright. */
+	float rotationDegrees
 ) {
 	/** View x (pixels) of a world x coordinate. */
 	public double x(double blockX) {

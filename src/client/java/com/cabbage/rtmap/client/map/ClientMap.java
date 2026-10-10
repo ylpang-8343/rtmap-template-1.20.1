@@ -1,6 +1,10 @@
 package com.cabbage.rtmap.client.map;
 
 import com.cabbage.rtmap.client.config.ClientConfig;
+import com.cabbage.rtmap.client.portal.PortalScanner;
+import com.cabbage.rtmap.client.portal.PortalStore;
+import com.cabbage.rtmap.client.waypoint.WaypointStore;
+import com.cabbage.rtmap.client.waypoint.Waypoints;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -30,6 +34,8 @@ public final class ClientMap {
 
 		ClientConfig.load();
 		Minimap.init();
+		Waypoints.init();
+		PortalScanner.init();
 
 		ClientChunkEvents.CHUNK_LOAD.register((world, chunk) -> MapUpdater.queue(world, chunk.getPos()));
 
@@ -45,6 +51,8 @@ public final class ClientMap {
 			if (++ticksSinceConfigSave >= CONFIG_SAVE_INTERVAL_TICKS) {
 				ticksSinceConfigSave = 0;
 				ClientConfig.saveIfDirty();
+				WaypointStore.saveIfDirty();
+				PortalStore.saveIfDirty();
 			}
 		});
 
@@ -55,6 +63,8 @@ public final class ClientMap {
 		// Closing the game from inside a world: make sure the last writes reach the disk.
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			ClientConfig.saveIfDirty();
+			WaypointStore.saveIfDirty();
+			PortalStore.saveIfDirty();
 			MapCache.saveAll();
 			MapStorage.flushAndWait();
 		});

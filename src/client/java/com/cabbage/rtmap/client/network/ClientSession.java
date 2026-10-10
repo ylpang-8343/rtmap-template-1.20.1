@@ -13,7 +13,9 @@ public final class ClientSession {
 		/** Read from the integrated server (singleplayer or own LAN world). */
 		LOCAL,
 		/** Delivered by a dedicated server that granted it. */
-		SERVER
+		SERVER,
+		/** Typed in by the player; only used when there is nothing better. */
+		MANUAL
 	}
 
 	private static volatile Long seed;
@@ -29,10 +31,18 @@ public final class ClientSession {
 	/** The seed to use for seed-based features such as slime chunks, if one is available. */
 	public static OptionalLong seed() {
 		Long value = seed;
-		return value == null ? OptionalLong.empty() : OptionalLong.of(value);
+		return value == null ? ManualSeed.get() : OptionalLong.of(value);
+	}
+
+	/** Whether the game or a server provided a seed. A typed one does not count; it must not stop us asking. */
+	static boolean hasProvidedSeed() {
+		return seed != null;
 	}
 
 	public static SeedSource seedSource() {
+		if (seedSource == null && ManualSeed.get().isPresent()) {
+			return SeedSource.MANUAL;
+		}
 		return seedSource;
 	}
 
