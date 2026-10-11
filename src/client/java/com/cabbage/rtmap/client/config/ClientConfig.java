@@ -55,6 +55,9 @@ public final class ClientConfig {
 	private static int minimapZoomIndex = 3;
 	private static boolean minimapRotate = false;
 	private static boolean showCoordinates = true;
+	private static boolean spawnRangeAroundPlayer = false;
+	/** The radii of the mob spawning rings, in blocks. Only editable in the file. */
+	private static int[] spawnRangeRadii = {24, 128};
 	private static boolean showConvertedCoordinates = true;
 	private static boolean showOtherDimensionWaypoints = true;
 	private static boolean worldWaypoints = true;
@@ -129,6 +132,20 @@ public final class ClientConfig {
 	public static void setShowCoordinates(boolean value) {
 		showCoordinates = value;
 		dirty = true;
+	}
+
+	/** Also draw the spawning rings around the player, not just around waypoints that ask for them. */
+	public static boolean spawnRangeAroundPlayer() {
+		return spawnRangeAroundPlayer;
+	}
+
+	public static void setSpawnRangeAroundPlayer(boolean value) {
+		spawnRangeAroundPlayer = value;
+		dirty = true;
+	}
+
+	public static int[] spawnRangeRadii() {
+		return spawnRangeRadii;
 	}
 
 	/** Show the matching overworld/nether coordinates next to the current ones. */
@@ -250,6 +267,8 @@ public final class ClientConfig {
 			minimapZoomIndex = Math.max(0, Math.min(MINIMAP_ZOOMS.length - 1, readInt(obj, "minimap_zoom_index", minimapZoomIndex)));
 			minimapRotate = readBoolean(obj, "minimap_rotate", minimapRotate);
 			showCoordinates = readBoolean(obj, "show_coordinates", showCoordinates);
+			spawnRangeAroundPlayer = readBoolean(obj, "spawn_range_around_player", spawnRangeAroundPlayer);
+			spawnRangeRadii = readRadii(obj, "spawn_range_radii", spawnRangeRadii);
 			showConvertedCoordinates = readBoolean(obj, "show_converted_coordinates", showConvertedCoordinates);
 			showOtherDimensionWaypoints = readBoolean(obj, "show_other_dimension_waypoints", showOtherDimensionWaypoints);
 			worldWaypoints = readBoolean(obj, "world_waypoints", worldWaypoints);
@@ -290,6 +309,12 @@ public final class ClientConfig {
 		obj.addProperty("minimap_zoom_index", minimapZoomIndex);
 		obj.addProperty("minimap_rotate", minimapRotate);
 		obj.addProperty("show_coordinates", showCoordinates);
+		obj.addProperty("spawn_range_around_player", spawnRangeAroundPlayer);
+		com.google.gson.JsonArray radii = new com.google.gson.JsonArray();
+		for (int radius : spawnRangeRadii) {
+			radii.add(radius);
+		}
+		obj.add("spawn_range_radii", radii);
 		obj.addProperty("show_converted_coordinates", showConvertedCoordinates);
 		obj.addProperty("show_other_dimension_waypoints", showOtherDimensionWaypoints);
 		obj.addProperty("world_waypoints", worldWaypoints);
@@ -341,6 +366,26 @@ public final class ClientConfig {
 		} catch (RuntimeException e) {
 			return fallback;
 		}
+	}
+
+	/** A list of ring radii: whole numbers from 1 to 512, at most 6 of them; anything else falls back. */
+	private static int[] readRadii(JsonObject obj, String key, int[] fallback) {
+		JsonElement element = obj.get(key);
+		if (element == null || !element.isJsonArray()) {
+			return fallback;
+		}
+		java.util.List<Integer> found = new java.util.ArrayList<>();
+		try {
+			for (JsonElement item : element.getAsJsonArray()) {
+				int radius = item.getAsInt();
+				if (radius >= 1 && radius <= 512 && found.size() < 6 && !found.contains(radius)) {
+					found.add(radius);
+				}
+			}
+		} catch (RuntimeException e) {
+			return fallback;
+		}
+		return found.stream().mapToInt(Integer::intValue).toArray();
 	}
 
 	private static String readString(JsonObject obj, String key, String fallback) {

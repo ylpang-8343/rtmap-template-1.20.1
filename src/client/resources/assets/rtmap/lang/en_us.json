@@ -29,6 +29,9 @@
 	"option.rtmap.death_waypoints": "Death Waypoints",
 	"layer.rtmap.slime_chunks": "Slime Chunks",
 	"layer.rtmap.portals": "Nether Portals",
+	"layer.rtmap.spawn_ranges": "Spawn Ranges",
+	"waypoint.rtmap.spawn_range": "Show Spawn Range",
+	"option.rtmap.spawn_range_around_me": "Spawn Range Around Me",
 	"layer.rtmap.waypoints": "Waypoints",
 	"waypoint.rtmap.group.default": "Default",
 	"waypoint.rtmap.group.death": "Death",
@@ -85,5 +88,11 @@
 	"portal.rtmap.nether": "Nether portal",
 	"portal.rtmap.overworld": "Overworld portal",
 	"portal.rtmap.converted": "Shown at its converted position",
+	"option.rtmap.category.minimap": "Minimap",
+	"option.rtmap.category.layers": "Layers",
+	"option.rtmap.category.waypoints": "Waypoints",
+	"option.rtmap.category.seed": "Seed",
+	"option.rtmap.search": "Search settings...",
+	"option.rtmap.search_empty": "No settings match your search.",
 	"waypoint.rtmap.empty": "No waypoints here. Press B to add one."
 }

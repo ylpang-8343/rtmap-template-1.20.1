@@ -33,6 +33,7 @@ public final class WaypointEditorScreen extends Screen {
 	private String group;
 	private int color;
 	private boolean enabled;
+	private boolean spawnRange;
 
 	private CyclingButtonWidget<Integer> colorButton;
 
@@ -50,6 +51,7 @@ public final class WaypointEditorScreen extends Screen {
 			this.group = WaypointGroup.DEFAULT_ID;
 			this.color = Waypoints.randomColor();
 			this.enabled = true;
+			this.spawnRange = false;
 		} else {
 			this.nameText = existing.name;
 			this.xText = Integer.toString(existing.x);
@@ -59,6 +61,7 @@ public final class WaypointEditorScreen extends Screen {
 			this.group = existing.group;
 			this.color = existing.color;
 			this.enabled = existing.enabled;
+			this.spawnRange = existing.spawnRange;
 		}
 	}
 
@@ -136,6 +139,11 @@ public final class WaypointEditorScreen extends Screen {
 			.build(left, y, half, 20, Text.translatable("waypoint.rtmap.enabled"), (button, value) -> enabled = value));
 		addDrawableChild(ButtonWidget.builder(Text.translatable("waypoint.rtmap.use_my_position"), pressed -> useMyPosition())
 			.dimensions(left + half + 4, y, half, 20).build());
+		y += 24;
+
+		// Draws the 24 and 128 block mob spawning rings around this waypoint on the map.
+		addDrawableChild(CyclingButtonWidget.onOffBuilder(spawnRange)
+			.build(left, y, WIDTH, 20, Text.translatable("waypoint.rtmap.spawn_range"), (button, value) -> spawnRange = value));
 		y += 30;
 
 		int buttons = existing == null ? 2 : 4;
@@ -231,10 +239,12 @@ public final class WaypointEditorScreen extends Screen {
 			existing.group = group;
 			existing.color = color;
 			existing.enabled = enabled;
+			existing.spawnRange = spawnRange;
 			WaypointStore.markChanged();
 		} else {
 			Waypoint waypoint = Waypoint.create(name, x, y, z, dimension, group, color);
 			waypoint.enabled = enabled;
+			waypoint.spawnRange = spawnRange;
 			WaypointStore.add(waypoint);
 		}
 		close();

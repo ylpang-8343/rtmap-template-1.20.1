@@ -129,6 +129,7 @@ public final class WaypointStore {
 					group,
 					obj.get("color").getAsInt() & 0xFFFFFF);
 				waypoint.enabled = !obj.has("enabled") || obj.get("enabled").getAsBoolean();
+				waypoint.spawnRange = obj.has("spawn_range") && obj.get("spawn_range").getAsBoolean();
 				WAYPOINTS.add(waypoint);
 			} catch (RuntimeException e) {
 				RTMap.LOGGER.warn("Skipping a bad waypoint entry", e);
@@ -168,6 +169,7 @@ public final class WaypointStore {
 			obj.addProperty("group", waypoint.group);
 			obj.addProperty("color", waypoint.color);
 			obj.addProperty("enabled", waypoint.enabled);
+			obj.addProperty("spawn_range", waypoint.spawnRange);
 			waypoints.add(obj);
 		}
 		root.add("waypoints", waypoints);

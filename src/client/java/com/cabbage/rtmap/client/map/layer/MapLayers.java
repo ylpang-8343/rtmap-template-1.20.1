@@ -9,6 +9,7 @@ import net.minecraft.client.gui.DrawContext;
 public final class MapLayers {
 	private static final List<MapLayer> LAYERS = List.of(
 		new SlimeChunkLayer(),
+		new SpawnRangeLayer(),
 		new PortalLayer(),
 		new WaypointLayer(),
 		new PlayerLayer()

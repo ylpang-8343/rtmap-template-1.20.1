@@ -29,6 +29,9 @@
 	"option.rtmap.death_waypoints": "死亡路径点",
 	"layer.rtmap.slime_chunks": "史莱姆区块",
 	"layer.rtmap.portals": "下界传送门",
+	"layer.rtmap.spawn_ranges": "刷怪范围",
+	"waypoint.rtmap.spawn_range": "显示刷怪范围",
+	"option.rtmap.spawn_range_around_me": "在我周围显示刷怪范围",
 	"layer.rtmap.waypoints": "路径点",
 	"waypoint.rtmap.group.default": "默认",
 	"waypoint.rtmap.group.death": "死亡",
@@ -85,5 +88,11 @@
 	"portal.rtmap.nether": "下界传送门",
 	"portal.rtmap.overworld": "主世界传送门",
 	"portal.rtmap.converted": "显示的是换算后的位置",
+	"option.rtmap.category.minimap": "小地图",
+	"option.rtmap.category.layers": "图层",
+	"option.rtmap.category.waypoints": "路径点",
+	"option.rtmap.category.seed": "种子",
+	"option.rtmap.search": "搜索设置……",
+	"option.rtmap.search_empty": "没有匹配的设置。",
 	"waypoint.rtmap.empty": "这里还没有路径点，按 B 添加一个。"
 }

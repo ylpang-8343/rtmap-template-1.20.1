@@ -26,6 +26,8 @@ public final class Waypoint {
 	/** RGB, without alpha. */
 	public int color;
 	public boolean enabled = true;
+	/** Draw the mob spawning rings around this waypoint on the map (for AFK spots). */
+	public boolean spawnRange;
 
 	/**
 	 * Death waypoints remove themselves when the player comes back. That only starts once the player has been

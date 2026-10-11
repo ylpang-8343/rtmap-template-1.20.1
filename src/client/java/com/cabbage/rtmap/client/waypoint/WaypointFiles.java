@@ -65,6 +65,7 @@ public final class WaypointFiles {
 			entry.addProperty("z", waypoint.z);
 			entry.addProperty("dimension", waypoint.dimension);
 			entry.addProperty("color", waypoint.color);
+			entry.addProperty("spawn_range", waypoint.spawnRange);
 			// By name rather than id, so the group still makes sense in another world.
 			entry.addProperty("group", group == null ? "Default" : group.name);
 			entries.add(entry);
@@ -155,7 +156,9 @@ public final class WaypointFiles {
 			}
 			int color = entry.has("color") ? entry.get("color").getAsInt() & 0xFFFFFF : Waypoints.randomColor();
 			String groupName = entry.has("group") ? entry.get("group").getAsString().trim() : "Default";
-			return Waypoint.create(name, x, y, z, dimension, groupName, color);
+			Waypoint waypoint = Waypoint.create(name, x, y, z, dimension, groupName, color);
+			waypoint.spawnRange = entry.has("spawn_range") && entry.get("spawn_range").getAsBoolean();
+			return waypoint;
 		} catch (RuntimeException e) {
 			return null;
 		}
