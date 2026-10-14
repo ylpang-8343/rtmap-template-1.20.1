@@ -4,6 +4,7 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+import com.cabbage.rtmap.client.measure.MeasureTool;
 import com.cabbage.rtmap.client.network.ManualSeed;
 import com.cabbage.rtmap.client.portal.PortalScanner;
 import com.cabbage.rtmap.client.portal.PortalStore;
@@ -53,6 +54,7 @@ public final class MapUpdater {
 		ticks = 0;
 		trackedConnection = null;
 		// Both must be flushed while the storage path still points at their world.
+		MeasureTool.setMode(MeasureTool.Mode.OFF);
 		PortalStore.saveIfDirty();
 		PortalStore.clear();
 		PortalScanner.reset();

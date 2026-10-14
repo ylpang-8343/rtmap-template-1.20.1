@@ -105,7 +105,7 @@ public final class SpawnRangeLayer implements MapLayer {
 	 * Draws one circle a row at a time, in real screen pixels so that the line is thin whatever the GUI scale is.
 	 * The innermost ring also gets a faint fill: that is the area where nothing spawns.
 	 */
-	private static void drawRing(DrawContext context, double centerX, double centerY, double radius, double limitY, int rgb, boolean fill) {
+	static void drawRing(DrawContext context, double centerX, double centerY, double radius, double limitY, int rgb, boolean fill) {
 		double scale = MapRenderer.guiScale();
 		MatrixStack matrices = context.getMatrices();
 		matrices.push();

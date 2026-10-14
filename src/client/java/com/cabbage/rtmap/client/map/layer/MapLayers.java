@@ -12,6 +12,7 @@ public final class MapLayers {
 		new SpawnRangeLayer(),
 		new PortalLayer(),
 		new WaypointLayer(),
+		new MeasureLayer(),
 		new PlayerLayer()
 	);
 

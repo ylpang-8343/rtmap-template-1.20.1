@@ -2,6 +2,7 @@ package com.cabbage.rtmap.client.map;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import com.cabbage.rtmap.client.config.ClientConfig;
 import com.cabbage.rtmap.client.network.ClientSession;
@@ -9,6 +10,7 @@ import com.cabbage.rtmap.client.map.layer.LayerView;
 import com.cabbage.rtmap.client.map.layer.MapLayer;
 import com.cabbage.rtmap.client.map.layer.MapLayers;
 import com.cabbage.rtmap.client.map.layer.PortalLayer;
+import com.cabbage.rtmap.client.measure.MeasureTool;
 import com.cabbage.rtmap.client.portal.Portal;
 import com.cabbage.rtmap.client.portal.PortalStore;
 import com.cabbage.rtmap.client.waypoint.DimensionScale;
@@ -20,6 +22,7 @@ import com.cabbage.rtmap.client.waypoint.Waypoints;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.CyclingButtonWidget;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
@@ -56,6 +59,11 @@ public final class FullscreenMapScreen extends Screen {
 	private double mouseGuiX;
 	private double mouseGuiY;
 
+	// A press on the map is either a click (places a measuring point) or the start of a drag (pans). Which one is
+	// only known on release, by how far the mouse moved.
+	private boolean pressOnMap;
+	private double dragDistance;
+
 	public FullscreenMapScreen() {
 		super(Text.translatable("screen.rtmap.map"));
 	}
@@ -77,6 +85,17 @@ public final class FullscreenMapScreen extends Screen {
 			addDrawableChild(button);
 			y += BUTTON_HEIGHT + BUTTON_GAP;
 		}
+
+		// The measuring tool: choose what to measure, then click the map.
+		addDrawableChild(CyclingButtonWidget.<MeasureTool.Mode>builder(
+				mode -> Text.translatable("measure.rtmap.mode." + mode.name().toLowerCase(Locale.ROOT)))
+			.values(MeasureTool.Mode.values())
+			.initially(MeasureTool.mode())
+			.build(6, y, BUTTON_WIDTH, BUTTON_HEIGHT, Text.translatable("measure.rtmap.tool"),
+				(button, value) -> MeasureTool.setMode(value)));
+		y += BUTTON_HEIGHT + BUTTON_GAP;
+		addDrawableChild(ButtonWidget.builder(Text.translatable("measure.rtmap.clear"), pressed -> MeasureTool.clear())
+			.dimensions(6, y, BUTTON_WIDTH, BUTTON_HEIGHT).build());
 
 		addDrawableChild(ButtonWidget.builder(Text.translatable("screen.rtmap.map.settings"),
 			pressed -> client.setScreen(new MapSettingsScreen(this)))
@@ -131,7 +150,30 @@ public final class FullscreenMapScreen extends Screen {
 		drawMap(context, world);
 		drawInfo(context, player, mouseX, mouseY);
 		super.render(context, mouseX, mouseY, delta);
+		drawMeasurement(context);
 		drawPortalTooltip(context, mouseX, mouseY);
+	}
+
+	/** The numbers for the current measurement, in a box at the bottom left. */
+	private void drawMeasurement(DrawContext context) {
+		if (!MeasureTool.active()) {
+			return;
+		}
+		List<Text> lines = MeasureTool.summary();
+		if (lines.isEmpty()) {
+			return;
+		}
+		int textWidth = 0;
+		for (Text line : lines) {
+			textWidth = Math.max(textWidth, textRenderer.getWidth(line));
+		}
+		int lineHeight = 11;
+		int boxHeight = lines.size() * lineHeight + 6;
+		int top = height - boxHeight - 6;
+		context.fill(4, top, 4 + textWidth + 10, top + boxHeight, 0xB0000000);
+		for (int i = 0; i < lines.size(); i++) {
+			context.drawTextWithShadow(textRenderer, lines.get(i), 9, top + 4 + i * lineHeight, 0xFFFFE066);
+		}
 	}
 
 	/** If the cursor is on a portal icon, name its dimension and give its real coordinates. */
@@ -224,6 +266,7 @@ public final class FullscreenMapScreen extends Screen {
 
 	@Override
 	public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+		dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
 		cameraX -= deltaX / guiZoom();
 		cameraZ -= deltaY / guiZoom();
 		return true;
@@ -242,8 +285,21 @@ public final class FullscreenMapScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(double mouseX, double mouseY, int button) {
+		pressOnMap = false;
 		if (super.mouseClicked(mouseX, mouseY, button)) {
 			return true; // a button took it
+		}
+		pressOnMap = true;
+		dragDistance = 0;
+
+		// While measuring, the map is for placing points: a right click takes the last one back, and a left click
+		// is judged on release (it may turn out to be a drag). Waypoints are left alone so they cannot get in the way.
+		if (MeasureTool.active()) {
+			if (button == 1) {
+				MeasureTool.removeLast();
+				return true;
+			}
+			return false;
 		}
 		if (button != 0 || !Waypoints.ready()) {
 			return false;
@@ -270,6 +326,22 @@ public final class FullscreenMapScreen extends Screen {
 			return true;
 		}
 		return false;
+	}
+
+	@Override
+	public boolean mouseReleased(double mouseX, double mouseY, int button) {
+		boolean handled = super.mouseReleased(mouseX, mouseY, button);
+		boolean wasPressOnMap = pressOnMap;
+		pressOnMap = false;
+
+		// A short press that did not move the map is a click: add a measuring point where it happened.
+		if (button == 0 && wasPressOnMap && MeasureTool.active() && dragDistance < 4
+			&& client.world != null && MapStorage.isResolved()) {
+			MeasureTool.addPoint(Waypoints.dimensionId(client.world),
+				MathHelper.floor(worldX(mouseX)), MathHelper.floor(worldZ(mouseY)));
+			return true;
+		}
+		return handled;
 	}
 
 	/** The visible waypoint under a screen position, or null. */
