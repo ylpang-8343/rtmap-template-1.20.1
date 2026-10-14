@@ -16,5 +16,10 @@ public interface MapLayer {
 		return false;
 	}
 
+	/** Whether the layer can work right now. Layers that depend on the server are hidden when it cannot help. */
+	default boolean available() {
+		return true;
+	}
+
 	void render(DrawContext context, LayerView view);
 }

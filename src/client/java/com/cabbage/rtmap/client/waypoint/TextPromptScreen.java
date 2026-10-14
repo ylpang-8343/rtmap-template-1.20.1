@@ -2,6 +2,7 @@ package com.cabbage.rtmap.client.waypoint;
 
 import java.util.function.Consumer;
 
+import com.cabbage.rtmap.client.ui.Theme;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -64,8 +65,9 @@ public final class TextPromptScreen extends Screen {
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		renderBackground(context);
-		context.drawTextWithShadow(textRenderer, prompt, width / 2 - WIDTH / 2, height / 2 - 30, 0xFFFFFF);
+		Theme.backdrop(context, width, height);
+		Theme.panel(context, width / 2 - WIDTH / 2 - 10, height / 2 - 42, WIDTH + 20, 84);
+		context.drawTextWithShadow(textRenderer, prompt, width / 2 - WIDTH / 2, height / 2 - 30, Theme.ACCENT);
 		super.render(context, mouseX, mouseY, delta);
 	}
 

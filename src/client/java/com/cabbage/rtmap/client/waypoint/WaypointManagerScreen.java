@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 
 import com.cabbage.rtmap.RTMap;
+import com.cabbage.rtmap.client.ui.Theme;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Element;
@@ -28,6 +29,7 @@ import net.minecraft.util.Formatting;
 public final class WaypointManagerScreen extends Screen {
 	private static final int ROW_HEIGHT = 24;
 	private static final int ROW_WIDTH = 330;
+	private static final int TITLE_BAR = 16;
 	private static final int LIST_TOP = 44;
 	private static final int BOTTOM_HEIGHT = 32;
 	/** Marks "every group" in the group filter. */
@@ -87,6 +89,8 @@ public final class WaypointManagerScreen extends Screen {
 			}));
 
 		list = new ListWidget(client, width, height, LIST_TOP, height - BOTTOM_HEIGHT);
+		list.setRenderBackground(false);
+		list.setRenderHorizontalShadows(false);
 		addDrawableChild(list);
 
 		int bottom = height - 26;
@@ -196,10 +200,12 @@ public final class WaypointManagerScreen extends Screen {
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		renderBackground(context);
-		context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 6, 0xFFFFFF);
+		Theme.backdrop(context, width, height);
+		Theme.bar(context, 0, 0, width, TITLE_BAR, true);
+		Theme.panel(context, width / 2 - ROW_WIDTH / 2 - 10, TITLE_BAR + 2, ROW_WIDTH + 28, height - TITLE_BAR - 5);
+		context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 5, Theme.TEXT);
 		int statusWidth = Math.max(40, width / 2 - textRenderer.getWidth(title) / 2 - 12);
-		context.drawText(textRenderer, textRenderer.trimToWidth(status.getString(), statusWidth), 6, 6, 0x80FF80, false);
+		context.drawText(textRenderer, textRenderer.trimToWidth(status.getString(), statusWidth), 6, 5, 0x80FF80, false);
 		super.render(context, mouseX, mouseY, delta);
 
 		if (list.children().isEmpty()) {

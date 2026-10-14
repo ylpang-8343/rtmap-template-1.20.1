@@ -14,11 +14,33 @@ public final class RTMapChannels {
 	public static final Identifier PERMISSIONS = RTMap.id("permissions");
 	public static final Identifier SEED_REQUEST = RTMap.id("seed_request");
 	public static final Identifier SEED_RESPONSE = RTMap.id("seed_response");
+	public static final Identifier CHUNK_QUERY = RTMap.id("chunk_query");
+	public static final Identifier CHUNK_DATA = RTMap.id("chunk_data");
 
 	public static final int PROTOCOL_VERSION = 1;
 	public static final int MIN_PROTOCOL_VERSION = 1;
 
 	public static final String FEATURE_SEED = "seed";
+	/** Per-chunk load level and tickets (which chunks are loaded and why). */
+	public static final String FEATURE_CHUNK_STATE = "chunk_state";
+	/** Per-chunk entity, block entity and hopper counts (the load heat map). */
+	public static final String FEATURE_CHUNK_LOAD = "chunk_load";
+
+	/** Bits in the {@code what} byte of a chunk_query. */
+	public static final int QUERY_STATE = 1;
+	public static final int QUERY_LOAD = 2;
+
+	public static final int STATUS_CHUNK_OK = 0;
+	public static final int STATUS_CHUNK_NOT_AUTHORIZED = 1;
+	public static final int STATUS_CHUNK_RATE_LIMITED = 2;
+	public static final int STATUS_CHUNK_BAD_REQUEST = 3;
+	public static final int STATUS_CHUNK_WRONG_DIMENSION = 4;
+
+	/** A query asks for at most this many chunks along each side, and this many in total. */
+	public static final int MAX_QUERY_SIDE = 256;
+	public static final int MAX_QUERY_CHUNKS = 65536;
+	/** Upper bound the client accepts for a chunk_data packet. */
+	public static final int MAX_CHUNK_DATA_BYTES = 1 << 20;
 
 	public static final int STATUS_HELLO_OK = 0;
 	public static final int STATUS_HELLO_INCOMPATIBLE = 1;

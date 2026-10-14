@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
 
+import com.cabbage.rtmap.client.ui.Theme;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.gui.screen.Screen;
@@ -36,6 +37,8 @@ public final class WaypointEditorScreen extends Screen {
 	private boolean spawnRange;
 
 	private CyclingButtonWidget<Integer> colorButton;
+	/** Where the panel behind the form ends; worked out while the buttons are placed. */
+	private int panelBottom = 200;
 
 	/** For an existing waypoint the position arguments are ignored; it supplies its own. */
 	public WaypointEditorScreen(Screen parent, Waypoint existing, int x, int y, int z, String dimension) {
@@ -146,6 +149,7 @@ public final class WaypointEditorScreen extends Screen {
 			.build(left, y, WIDTH, 20, Text.translatable("waypoint.rtmap.spawn_range"), (button, value) -> spawnRange = value));
 		y += 30;
 
+		panelBottom = y + 20 + 8;
 		int buttons = existing == null ? 2 : 4;
 		int buttonWidth = (WIDTH - 4 * (buttons - 1)) / buttons;
 		int x = left;
@@ -252,8 +256,9 @@ public final class WaypointEditorScreen extends Screen {
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		renderBackground(context);
-		context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 12, 0xFFFFFF);
+		Theme.backdrop(context, width, height);
+		Theme.panel(context, width / 2 - WIDTH / 2 - 12, 6, WIDTH + 24, panelBottom - 6);
+		context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 12, Theme.ACCENT);
 
 		int left = width / 2 - WIDTH / 2;
 		int fieldWidth = (WIDTH - 8) / 3;

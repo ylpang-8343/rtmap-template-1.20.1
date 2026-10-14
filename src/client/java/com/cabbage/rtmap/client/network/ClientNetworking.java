@@ -21,7 +21,8 @@ import net.minecraft.text.Text;
  * registered our channels; anything else leaves the mod in client-only mode.
  */
 public final class ClientNetworking {
-	private static final List<String> CLIENT_FEATURES = List.of(RTMapChannels.FEATURE_SEED);
+	private static final List<String> CLIENT_FEATURES = List.of(
+		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD);
 
 	private record ServerHello(int status, int protocol, UUID worldId, Set<String> features, Set<String> grants) {
 	}

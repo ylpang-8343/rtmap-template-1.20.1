@@ -8,6 +8,8 @@ import net.minecraft.client.gui.DrawContext;
 /** All map layers, in drawing order (later ones are drawn on top). */
 public final class MapLayers {
 	private static final List<MapLayer> LAYERS = List.of(
+		new ChunkLoadLayer(),
+		new ChunkStateLayer(),
 		new SlimeChunkLayer(),
 		new SpawnRangeLayer(),
 		new PortalLayer(),
@@ -21,7 +23,7 @@ public final class MapLayers {
 
 	/** The layers the player can switch on and off, in drawing order. */
 	public static List<MapLayer> toggleable() {
-		return LAYERS.stream().filter(MapLayer::toggleable).toList();
+		return LAYERS.stream().filter(MapLayer::toggleable).filter(MapLayer::available).toList();
 	}
 
 	public static boolean isEnabled(MapLayer layer) {
@@ -44,7 +46,7 @@ public final class MapLayers {
 
 	public static void renderAll(DrawContext context, LayerView view) {
 		for (MapLayer layer : LAYERS) {
-			if (isEnabled(layer)) {
+			if (isEnabled(layer) && layer.available()) {
 				layer.render(context, view);
 			}
 		}

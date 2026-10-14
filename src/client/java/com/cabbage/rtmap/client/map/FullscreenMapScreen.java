@@ -4,48 +4,66 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import com.cabbage.rtmap.chunk.ChunkSnapshot;
+import com.cabbage.rtmap.client.chunk.ChunkDataClient;
+import com.cabbage.rtmap.client.chunk.ChunkInfo;
 import com.cabbage.rtmap.client.config.ClientConfig;
-import com.cabbage.rtmap.client.network.ClientSession;
+import com.cabbage.rtmap.client.map.layer.ChunkStateLayer;
 import com.cabbage.rtmap.client.map.layer.LayerView;
 import com.cabbage.rtmap.client.map.layer.MapLayer;
 import com.cabbage.rtmap.client.map.layer.MapLayers;
 import com.cabbage.rtmap.client.map.layer.PortalLayer;
 import com.cabbage.rtmap.client.measure.MeasureTool;
+import com.cabbage.rtmap.client.network.ClientSession;
 import com.cabbage.rtmap.client.portal.Portal;
 import com.cabbage.rtmap.client.portal.PortalStore;
+import com.cabbage.rtmap.client.ui.ContextMenu;
+import com.cabbage.rtmap.client.ui.Icon;
+import com.cabbage.rtmap.client.ui.IconButton;
+import com.cabbage.rtmap.client.ui.Theme;
 import com.cabbage.rtmap.client.waypoint.DimensionScale;
 import com.cabbage.rtmap.client.waypoint.Waypoint;
 import com.cabbage.rtmap.client.waypoint.WaypointEditorScreen;
+import com.cabbage.rtmap.client.waypoint.WaypointGroup;
 import com.cabbage.rtmap.client.waypoint.WaypointManagerScreen;
+import com.cabbage.rtmap.client.waypoint.WaypointSharing;
 import com.cabbage.rtmap.client.waypoint.WaypointStore;
 import com.cabbage.rtmap.client.waypoint.Waypoints;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.Element;
+import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.CyclingButtonWidget;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.screen.ScreenTexts;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.Util;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.Heightmap;
 
 /**
- * Full-screen map: drag to pan, scroll to zoom around the cursor, press the map key again to close.
- * Buttons on the left switch layers on and off; the button at the top right opens the map settings.
+ * Full-screen map. Drag to pan, scroll to zoom around the cursor, right-click for a menu, press the map key again
+ * to close. A toolbar along the top holds the layer switches and tools, and a status line along the bottom shows
+ * where the cursor is, in the way JourneyMap lays its screen out.
  */
 public final class FullscreenMapScreen extends Screen {
 	// Zoom is measured in real screen pixels per block, so "1.00x" is one pixel per block whatever the GUI scale
 	// is. 0.01 is about where the coarsest overview level (MapCache.MAX_LEVEL) stops having enough detail.
 	private static final double MIN_ZOOM = 0.01;
 	private static final double MAX_ZOOM = 32.0;
+	/** What one click of a zoom button multiplies the zoom by. */
+	private static final double BUTTON_ZOOM_STEP = 1.5;
 
-	private static final int BUTTON_WIDTH = 120;
-	private static final int BUTTON_HEIGHT = 20;
-	private static final int BUTTON_GAP = 2;
+	private static final int BUTTON = 20;
+	private static final int GAP = 2;
+	private static final int BAR_PADDING = 3;
+	private static final int SEPARATOR_GAP = 8;
+	private static final int STATUS_HEIGHT = 14;
+	private static final long FLASH_MS = 2500;
 
 	// Camera center in block coordinates, and real screen pixels per block.
 	private double cameraX;
@@ -64,6 +82,14 @@ public final class FullscreenMapScreen extends Screen {
 	private boolean pressOnMap;
 	private double dragDistance;
 
+	private final ContextMenu menu = new ContextMenu();
+	private final List<int[]> separators = new ArrayList<>();
+	private int toolbarHeight = BUTTON + 2 * BAR_PADDING;
+	private IconButton clearButton;
+	/** A short message in the status area, such as "coordinates copied". */
+	private Text flash = Text.empty();
+	private long flashUntil;
+
 	public FullscreenMapScreen() {
 		super(Text.translatable("screen.rtmap.map"));
 	}
@@ -75,39 +101,118 @@ public final class FullscreenMapScreen extends Screen {
 			cameraX = player.getX();
 			cameraZ = player.getZ();
 		}
+		menu.close();
 
-		int y = 44;
+		// Left side: one switch per layer, then the measuring tool. A null stands for a gap between groups.
+		List<ClickableWidget> left = new ArrayList<>();
 		for (MapLayer layer : MapLayers.toggleable()) {
-			ButtonWidget button = ButtonWidget.builder(layerLabel(layer), pressed -> {
-				MapLayers.setEnabled(layer, !MapLayers.isEnabled(layer));
-				pressed.setMessage(layerLabel(layer));
-			}).dimensions(6, y, BUTTON_WIDTH, BUTTON_HEIGHT).build();
-			addDrawableChild(button);
-			y += BUTTON_HEIGHT + BUTTON_GAP;
+			if (layer.id().equals("measure")) {
+				continue; // shown by the measuring tool's own buttons; the layer can still be switched in the settings
+			}
+			left.add(new IconButton(0, 0, BUTTON, () -> Icon.forLayer(layer.id()), () -> layerLabel(layer),
+				() -> MapLayers.isEnabled(layer), pressed -> MapLayers.setEnabled(layer, !MapLayers.isEnabled(layer))));
 		}
+		left.add(null);
+		left.add(new IconButton(0, 0, BUTTON, FullscreenMapScreen::measureIcon, FullscreenMapScreen::measureLabel,
+			MeasureTool::active, pressed -> {
+				MeasureTool.Mode[] modes = MeasureTool.Mode.values();
+				MeasureTool.setMode(modes[(MeasureTool.mode().ordinal() + 1) % modes.length]);
+			}));
+		clearButton = IconButton.action(0, 0, BUTTON, Icon.CLEAR, Text.translatable("measure.rtmap.clear"),
+			pressed -> MeasureTool.clear());
+		left.add(clearButton);
 
-		// The measuring tool: choose what to measure, then click the map.
-		addDrawableChild(CyclingButtonWidget.<MeasureTool.Mode>builder(
-				mode -> Text.translatable("measure.rtmap.mode." + mode.name().toLowerCase(Locale.ROOT)))
-			.values(MeasureTool.Mode.values())
-			.initially(MeasureTool.mode())
-			.build(6, y, BUTTON_WIDTH, BUTTON_HEIGHT, Text.translatable("measure.rtmap.tool"),
-				(button, value) -> MeasureTool.setMode(value)));
-		y += BUTTON_HEIGHT + BUTTON_GAP;
-		addDrawableChild(ButtonWidget.builder(Text.translatable("measure.rtmap.clear"), pressed -> MeasureTool.clear())
-			.dimensions(6, y, BUTTON_WIDTH, BUTTON_HEIGHT).build());
+		// Right side: zoom, back to the player, then the two screens.
+		List<ClickableWidget> right = new ArrayList<>();
+		right.add(IconButton.action(0, 0, BUTTON, Icon.ZOOM_OUT, Text.translatable("map.rtmap.zoom_out"),
+			pressed -> zoom = MathHelper.clamp(zoom / BUTTON_ZOOM_STEP, MIN_ZOOM, MAX_ZOOM)));
+		right.add(IconButton.action(0, 0, BUTTON, Icon.ZOOM_IN, Text.translatable("map.rtmap.zoom_in"),
+			pressed -> zoom = MathHelper.clamp(zoom * BUTTON_ZOOM_STEP, MIN_ZOOM, MAX_ZOOM)));
+		right.add(IconButton.action(0, 0, BUTTON, Icon.CENTER, Text.translatable("map.rtmap.center"), pressed -> {
+			if (client.player != null) {
+				cameraX = client.player.getX();
+				cameraZ = client.player.getZ();
+			}
+		}));
+		right.add(null);
+		right.add(IconButton.action(0, 0, BUTTON, Icon.LIST, Text.translatable("screen.rtmap.waypoints"),
+			pressed -> client.setScreen(new WaypointManagerScreen(this))));
+		right.add(IconButton.action(0, 0, BUTTON, Icon.SETTINGS, Text.translatable("screen.rtmap.map.settings"),
+			pressed -> client.setScreen(new MapSettingsScreen(this))));
 
-		addDrawableChild(ButtonWidget.builder(Text.translatable("screen.rtmap.map.settings"),
-			pressed -> client.setScreen(new MapSettingsScreen(this)))
-			.dimensions(width - BUTTON_WIDTH - 6, 6, BUTTON_WIDTH, BUTTON_HEIGHT).build());
-		addDrawableChild(ButtonWidget.builder(Text.translatable("screen.rtmap.waypoints"),
-			pressed -> client.setScreen(new WaypointManagerScreen(this)))
-			.dimensions(width - BUTTON_WIDTH - 6, 6 + BUTTON_HEIGHT + BUTTON_GAP, BUTTON_WIDTH, BUTTON_HEIGHT).build());
+		layoutToolbar(left, right);
+	}
+
+	/** Places the buttons: the right group hugs the right edge, the left group flows and wraps if the window is narrow. */
+	private void layoutToolbar(List<ClickableWidget> left, List<ClickableWidget> right) {
+		separators.clear();
+
+		int rightWidth = groupWidth(right);
+		int rightX = width - BAR_PADDING - rightWidth;
+		placeRow(right, rightX, BAR_PADDING);
+
+		int row = 0;
+		int x = BAR_PADDING;
+		int y = BAR_PADDING;
+		for (ClickableWidget widget : left) {
+			if (widget == null) {
+				separators.add(new int[] {x + SEPARATOR_GAP / 2 - GAP / 2 - 1, y});
+				x += SEPARATOR_GAP - GAP;
+				continue;
+			}
+			int limit = row == 0 ? rightX - SEPARATOR_GAP : width - BAR_PADDING;
+			if (x + BUTTON > limit && x > BAR_PADDING) {
+				row++;
+				x = BAR_PADDING;
+				y += BUTTON + GAP;
+			}
+			widget.setX(x);
+			widget.setY(y);
+			addDrawableChild(widget);
+			x += BUTTON + GAP;
+		}
+		toolbarHeight = (row + 1) * (BUTTON + GAP) + BAR_PADDING * 2 - GAP;
+	}
+
+	private static int groupWidth(List<ClickableWidget> group) {
+		int total = 0;
+		for (ClickableWidget widget : group) {
+			total += widget == null ? SEPARATOR_GAP - GAP : BUTTON + GAP;
+		}
+		return total - GAP;
+	}
+
+	private void placeRow(List<ClickableWidget> group, int startX, int y) {
+		int x = startX;
+		for (ClickableWidget widget : group) {
+			if (widget == null) {
+				separators.add(new int[] {x + SEPARATOR_GAP / 2 - GAP / 2 - 1, y});
+				x += SEPARATOR_GAP - GAP;
+				continue;
+			}
+			widget.setX(x);
+			widget.setY(y);
+			addDrawableChild(widget);
+			x += BUTTON + GAP;
+		}
 	}
 
 	private static Text layerLabel(MapLayer layer) {
 		MutableText name = Text.translatable("layer.rtmap." + layer.id());
 		return name.append(": ").append(ScreenTexts.onOrOff(MapLayers.isEnabled(layer)));
+	}
+
+	private static Icon measureIcon() {
+		return switch (MeasureTool.mode()) {
+			case RECTANGLE -> Icon.RECTANGLE;
+			case CIRCLE -> Icon.CIRCLE;
+			default -> Icon.RULER;
+		};
+	}
+
+	private static Text measureLabel() {
+		return Text.translatable("measure.rtmap.tool").append(": ")
+			.append(Text.translatable("measure.rtmap.mode." + MeasureTool.mode().name().toLowerCase(Locale.ROOT)));
 	}
 
 	@Override
@@ -128,9 +233,14 @@ public final class FullscreenMapScreen extends Screen {
 		return cameraZ + (screenY - height / 2.0) / guiZoom();
 	}
 
+	/** Whether a screen position is on the toolbar or the status line rather than on the map. */
+	private boolean overBar(double mouseX, double mouseY) {
+		return mouseY < toolbarHeight || mouseY >= height - STATUS_HEIGHT;
+	}
+
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		context.fill(0, 0, width, height, 0xFF101018);
+		context.fill(0, 0, width, height, Theme.MAP_BACKGROUND);
 		mouseGuiX = mouseX;
 		mouseGuiY = mouseY;
 
@@ -148,10 +258,123 @@ public final class FullscreenMapScreen extends Screen {
 		}
 
 		drawMap(context, world);
-		drawInfo(context, player, mouseX, mouseY);
+		drawToolbar(context);
 		super.render(context, mouseX, mouseY, delta);
+		drawStatusLine(context, player, mouseX, mouseY);
 		drawMeasurement(context);
-		drawPortalTooltip(context, mouseX, mouseY);
+		drawMessages(context, world);
+
+		if (menu.isOpen()) {
+			menu.render(context, textRenderer, mouseX, mouseY);
+		} else if (!overBar(mouseX, mouseY) && !drawPortalTooltip(context, mouseX, mouseY)) {
+			drawChunkTooltip(context, mouseX, mouseY);
+		}
+	}
+
+	private void drawToolbar(DrawContext context) {
+		Theme.bar(context, 0, 0, width, toolbarHeight, true);
+		for (int[] separator : separators) {
+			context.fill(separator[0], separator[1] + 2, separator[0] + 1, separator[1] + BUTTON - 2, Theme.BORDER);
+		}
+		if (clearButton != null) {
+			clearButton.active = !MeasureTool.points().isEmpty();
+		}
+	}
+
+	/** The line along the bottom: cursor position, chunk, the other dimension's coordinates, then you and the zoom. */
+	private void drawStatusLine(DrawContext context, ClientPlayerEntity player, int mouseX, int mouseY) {
+		int top = height - STATUS_HEIGHT;
+		Theme.bar(context, 0, top, width, STATUS_HEIGHT, false);
+		int textY = top + (STATUS_HEIGHT - 8) / 2 + 1;
+
+		int blockX = MathHelper.floor(worldX(mouseX));
+		int blockZ = MathHelper.floor(worldZ(mouseY));
+		Text cursor = Text.translatable("map.rtmap.status.cursor", blockX, blockZ, blockX >> 4, blockZ >> 4);
+		Text me = Text.translatable("map.rtmap.status.player", player.getBlockX(), player.getBlockY(), player.getBlockZ(),
+			String.format(Locale.ROOT, "%.2f", zoom));
+
+		int x = 6;
+		context.drawText(textRenderer, cursor, x, textY, Theme.TEXT, false);
+		x += textRenderer.getWidth(cursor) + 12;
+
+		int meWidth = textRenderer.getWidth(me);
+		int meX = width - meWidth - 6;
+
+		// Where the same spot is in the other dimension of the overworld/nether pair, if there is room for it.
+		String dimension = Waypoints.dimensionId(client.world);
+		String other = DimensionScale.counterpart(dimension);
+		if (other != null && ClientConfig.showConvertedCoordinates()) {
+			Text converted = Text.translatable("screen.rtmap.map.converted", Waypoints.dimensionName(other),
+				DimensionScale.convert(blockX, dimension, other), DimensionScale.convert(blockZ, dimension, other));
+			if (x + textRenderer.getWidth(converted) + 12 < meX) {
+				context.drawText(textRenderer, converted, x, textY, Theme.ACCENT, false);
+			}
+		}
+		if (meX > 6 + textRenderer.getWidth(cursor) + 12) {
+			context.drawText(textRenderer, me, meX, textY, Theme.TEXT_MUTED, false);
+		}
+	}
+
+	/** Things the player should know right now, stacked above the status line. */
+	private void drawMessages(DrawContext context, ClientWorld world) {
+		List<Text> messages = new ArrayList<>();
+		int[] colors = new int[8];
+		int count = 0;
+
+		if (Util.getMeasuringTimeMs() < flashUntil) {
+			colors[count++] = 0xFF80FF80;
+			messages.add(flash);
+		}
+		if (world.getDimension().hasCeiling()) {
+			colors[count++] = 0xFFA0A0A0;
+			messages.add(Text.translatable("screen.rtmap.map.unsupported_dimension"));
+		}
+		// The slime chunk layer needs the world seed; without one it draws nothing, so say so.
+		if (DimensionScale.OVERWORLD.equals(Waypoints.dimensionId(world)) && MapLayers.isEnabled("slime_chunks")
+			&& ClientSession.seed().isEmpty()) {
+			colors[count++] = 0xFFFF8080;
+			messages.add(Text.translatable("screen.rtmap.map.no_seed"));
+		}
+		// The chunk layers draw nothing when zoomed far out, or when the server said no; tell the player which.
+		boolean chunkLayerOn = MapLayers.isEnabled("chunk_state") || MapLayers.isEnabled("chunk_load");
+		if (chunkLayerOn && ChunkDataClient.denied()) {
+			colors[count++] = 0xFFFF8080;
+			messages.add(Text.translatable("screen.rtmap.map.chunk_denied"));
+		} else if (chunkLayerOn && zoom < ChunkStateLayer.MIN_ZOOM) {
+			colors[count++] = 0xFFFFD27F;
+			messages.add(Text.translatable("screen.rtmap.map.chunk_zoom"));
+		}
+
+		int y = height - STATUS_HEIGHT - 14;
+		for (int i = 0; i < messages.size(); i++) {
+			Text message = messages.get(i);
+			int textWidth = textRenderer.getWidth(message);
+			int x = (width - textWidth) / 2;
+			context.fill(x - 4, y - 2, x + textWidth + 4, y + 10, 0xA0000000);
+			context.drawText(textRenderer, message, x, y, colors[i], false);
+			y -= 14;
+		}
+	}
+
+	/** Loading level, tickets and counts for the chunk under the cursor, when a chunk layer is on. */
+	private void drawChunkTooltip(DrawContext context, int mouseX, int mouseY) {
+		if (!MapLayers.isEnabled("chunk_state") && !MapLayers.isEnabled("chunk_load")) {
+			return;
+		}
+		for (Element child : children()) {
+			if (child.isMouseOver(mouseX, mouseY)) {
+				return;
+			}
+		}
+		ChunkSnapshot snapshot = ChunkDataClient.snapshot();
+		if (snapshot == null) {
+			return;
+		}
+		List<Text> lines = ChunkInfo.lines(snapshot,
+			MathHelper.floor(worldX(mouseX)) >> 4, MathHelper.floor(worldZ(mouseY)) >> 4);
+		if (!lines.isEmpty()) {
+			context.drawTooltip(textRenderer, lines, mouseX, mouseY);
+		}
 	}
 
 	/** The numbers for the current measurement, in a box at the bottom left. */
@@ -169,17 +392,17 @@ public final class FullscreenMapScreen extends Screen {
 		}
 		int lineHeight = 11;
 		int boxHeight = lines.size() * lineHeight + 6;
-		int top = height - boxHeight - 6;
-		context.fill(4, top, 4 + textWidth + 10, top + boxHeight, 0xB0000000);
+		int top = height - STATUS_HEIGHT - boxHeight - 6;
+		Theme.panel(context, 4, top, textWidth + 10, boxHeight);
 		for (int i = 0; i < lines.size(); i++) {
 			context.drawTextWithShadow(textRenderer, lines.get(i), 9, top + 4 + i * lineHeight, 0xFFFFE066);
 		}
 	}
 
 	/** If the cursor is on a portal icon, name its dimension and give its real coordinates. */
-	private void drawPortalTooltip(DrawContext context, int mouseX, int mouseY) {
+	private boolean drawPortalTooltip(DrawContext context, int mouseX, int mouseY) {
 		if (client.world == null || !MapLayers.isEnabled("portals") || !PortalStore.isLoaded()) {
-			return;
+			return false;
 		}
 		String dimension = Waypoints.dimensionId(client.world);
 		double guiZoom = guiZoom();
@@ -199,7 +422,7 @@ public final class FullscreenMapScreen extends Screen {
 			}
 		}
 		if (closest == null) {
-			return;
+			return false;
 		}
 
 		boolean nether = DimensionScale.NETHER.equals(closest.dimension());
@@ -209,9 +432,10 @@ public final class FullscreenMapScreen extends Screen {
 			.styled(style -> style.withColor(color)));
 		lines.add(Text.literal(closest.x() + ", " + closest.y() + ", " + closest.z()));
 		if (!closest.dimension().equals(dimension)) {
-			lines.add(Text.translatable("portal.rtmap.converted").formatted(net.minecraft.util.Formatting.GRAY));
+			lines.add(Text.translatable("portal.rtmap.converted").formatted(Formatting.GRAY));
 		}
 		context.drawTooltip(textRenderer, lines, mouseX, mouseY);
+		return true;
 	}
 
 	private void drawMap(DrawContext context, ClientWorld world) {
@@ -233,39 +457,11 @@ public final class FullscreenMapScreen extends Screen {
 		matrices.pop();
 	}
 
-	private void drawInfo(DrawContext context, ClientPlayerEntity player, int mouseX, int mouseY) {
-		int blockX = MathHelper.floor(worldX(mouseX));
-		int blockZ = MathHelper.floor(worldZ(mouseY));
-		context.drawTextWithShadow(textRenderer,
-			Text.literal("X " + blockX + "  Z " + blockZ + "   chunk " + (blockX >> 4) + ", " + (blockZ >> 4)),
-			6, 6, 0xFFFFFF);
-		context.drawTextWithShadow(textRenderer,
-			Text.literal("you: " + player.getBlockX() + ", " + player.getBlockY() + ", " + player.getBlockZ()
-				+ "   zoom " + String.format("%.2f", zoom) + "x"),
-			6, 18, 0xAAAAAA);
-
-		// Where the same spot is in the other dimension of the overworld/nether pair.
-		String dimension = Waypoints.dimensionId(client.world);
-		String other = DimensionScale.counterpart(dimension);
-		if (other != null && ClientConfig.showConvertedCoordinates()) {
-			context.drawTextWithShadow(textRenderer,
-				Text.translatable("screen.rtmap.map.converted", Waypoints.dimensionName(other),
-					DimensionScale.convert(blockX, dimension, other), DimensionScale.convert(blockZ, dimension, other)),
-				6, 30, 0xFFD27F);
-		}
-		if (client.world.getDimension().hasCeiling()) {
-			context.drawCenteredTextWithShadow(textRenderer, Text.translatable("screen.rtmap.map.unsupported_dimension"),
-				width / 2, height - 14, 0xA0A0A0);
-		}
-		// The slime chunk layer needs the world seed; without one it draws nothing, so say so.
-		if (DimensionScale.OVERWORLD.equals(dimension) && MapLayers.isEnabled("slime_chunks") && ClientSession.seed().isEmpty()) {
-			context.drawCenteredTextWithShadow(textRenderer, Text.translatable("screen.rtmap.map.no_seed"),
-				width / 2, height - 28, 0xFF8080);
-		}
-	}
-
 	@Override
 	public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+		if (!pressOnMap) {
+			return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+		}
 		dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
 		cameraX -= deltaX / guiZoom();
 		cameraZ -= deltaY / guiZoom();
@@ -274,6 +470,7 @@ public final class FullscreenMapScreen extends Screen {
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+		menu.close();
 		// Keep the block under the cursor where it is while zooming.
 		double anchorX = worldX(mouseX);
 		double anchorZ = worldZ(mouseY);
@@ -286,8 +483,14 @@ public final class FullscreenMapScreen extends Screen {
 	@Override
 	public boolean mouseClicked(double mouseX, double mouseY, int button) {
 		pressOnMap = false;
+		if (menu.isOpen()) {
+			return menu.click(mouseX, mouseY);
+		}
 		if (super.mouseClicked(mouseX, mouseY, button)) {
 			return true; // a button took it
+		}
+		if (overBar(mouseX, mouseY)) {
+			return true; // the empty part of a bar is not the map
 		}
 		pressOnMap = true;
 		dragDistance = 0;
@@ -301,6 +504,7 @@ public final class FullscreenMapScreen extends Screen {
 			}
 			return false;
 		}
+		// A right click opens the menu, but only on release, once it is clear it was not the start of a drag.
 		if (button != 0 || !Waypoints.ready()) {
 			return false;
 		}
@@ -341,7 +545,52 @@ public final class FullscreenMapScreen extends Screen {
 				MathHelper.floor(worldX(mouseX)), MathHelper.floor(worldZ(mouseY)));
 			return true;
 		}
+		if (button == 1 && wasPressOnMap && !MeasureTool.active() && dragDistance < 4 && MapStorage.isResolved()) {
+			openContextMenu((int) mouseX, (int) mouseY);
+			return true;
+		}
 		return handled;
+	}
+
+	/** The right-click menu: for a waypoint if the click was on one, otherwise for the spot on the map. */
+	private void openContextMenu(int mouseX, int mouseY) {
+		if (client.world == null) {
+			return;
+		}
+		Waypoint waypoint = Waypoints.ready() ? waypointAt(mouseX, mouseY) : null;
+		List<ContextMenu.Entry> entries = new ArrayList<>();
+
+		if (waypoint != null) {
+			entries.add(ContextMenu.Entry.of(Text.translatable("menu.rtmap.edit_waypoint"), () ->
+				client.setScreen(new WaypointEditorScreen(this, waypoint, waypoint.x, waypoint.y, waypoint.z, waypoint.dimension))));
+			entries.add(ContextMenu.Entry.of(Text.translatable("menu.rtmap.teleport_waypoint"), () -> {
+				Waypoints.teleport(waypoint);
+				client.setScreen(null);
+			}));
+			// Opens the chat box with the text filled in; the player decides whether to send it.
+			entries.add(ContextMenu.Entry.of(Text.translatable("menu.rtmap.share_waypoint"), () ->
+				client.setScreen(new ChatScreen(WaypointSharing.format(waypoint)))));
+			entries.add(ContextMenu.Entry.confirming(Text.translatable("menu.rtmap.delete_waypoint"),
+				Text.translatable("menu.rtmap.confirm_delete"), () -> WaypointStore.remove(waypoint)));
+		} else {
+			int blockX = MathHelper.floor(worldX(mouseX));
+			int blockZ = MathHelper.floor(worldZ(mouseY));
+			int blockY = surfaceY(blockX, blockZ);
+			if (Waypoints.ready()) {
+				entries.add(ContextMenu.Entry.of(Text.translatable("menu.rtmap.new_waypoint"), () -> openNewWaypointAt(blockX, blockZ)));
+			}
+			entries.add(ContextMenu.Entry.of(Text.translatable("menu.rtmap.copy_coordinates"), () -> {
+				client.keyboard.setClipboard(blockX + " " + blockY + " " + blockZ);
+				flash = Text.translatable("menu.rtmap.copied", blockX + ", " + blockY + ", " + blockZ);
+				flashUntil = Util.getMeasuringTimeMs() + FLASH_MS;
+			}));
+			entries.add(ContextMenu.Entry.of(Text.translatable("menu.rtmap.teleport_here"), () -> {
+				Waypoints.teleport(Waypoint.create("", blockX, blockY, blockZ, Waypoints.dimensionId(client.world),
+					WaypointGroup.DEFAULT_ID, 0xFFFFFF));
+				client.setScreen(null);
+			}));
+		}
+		menu.open(textRenderer, mouseX, mouseY, width, height, entries);
 	}
 
 	/** The visible waypoint under a screen position, or null. */
@@ -373,20 +622,30 @@ public final class FullscreenMapScreen extends Screen {
 		return closest;
 	}
 
+	/** Height: the real surface if that part of the world is loaded, otherwise wherever the player is. */
+	private int surfaceY(int blockX, int blockZ) {
+		int y = client.player == null ? 64 : client.player.getBlockY();
+		if (client.world != null && client.world.getChunkManager().isChunkLoaded(blockX >> 4, blockZ >> 4)) {
+			y = client.world.getTopY(Heightmap.Type.WORLD_SURFACE, blockX, blockZ);
+		}
+		return y;
+	}
+
 	private void openNewWaypointAt(int blockX, int blockZ) {
 		if (client.world == null || client.player == null || !Waypoints.ready()) {
 			return;
 		}
-		// Height: the real surface if that part of the world is loaded, otherwise wherever the player is.
-		int y = client.player.getBlockY();
-		if (client.world.getChunkManager().isChunkLoaded(blockX >> 4, blockZ >> 4)) {
-			y = client.world.getTopY(Heightmap.Type.WORLD_SURFACE, blockX, blockZ);
-		}
-		client.setScreen(new WaypointEditorScreen(this, null, blockX, y, blockZ, Waypoints.dimensionId(client.world)));
+		client.setScreen(new WaypointEditorScreen(this, null, blockX, surfaceY(blockX, blockZ), blockZ,
+			Waypoints.dimensionId(client.world)));
 	}
 
 	@Override
 	public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+		// Escape closes an open menu first, and only then the map.
+		if (keyCode == 256 && menu.isOpen()) {
+			menu.close();
+			return true;
+		}
 		if (ClientMap.openKey().matchesKey(keyCode, scanCode)) {
 			close();
 			return true;

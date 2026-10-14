@@ -22,6 +22,10 @@ public final class RTMapCommand {
 					.executes(RTMapCommand::querySeedSharing)
 					.then(CommandManager.argument("enabled", BoolArgumentType.bool())
 						.executes(RTMapCommand::setSeedSharing)))
+				.then(CommandManager.literal("chunk_data_sharing")
+					.executes(RTMapCommand::queryChunkDataSharing)
+					.then(CommandManager.argument("enabled", BoolArgumentType.bool())
+						.executes(RTMapCommand::setChunkDataSharing)))
 				.then(CommandManager.literal("reload")
 					.executes(RTMapCommand::reload))
 		));
@@ -39,6 +43,24 @@ public final class RTMapCommand {
 		ServerNetworking.sendPermissionsToAll(context.getSource().getServer());
 
 		context.getSource().sendFeedback(() -> Text.literal("seed_sharing set to " + enabled), true);
+		if (!saved) {
+			context.getSource().sendError(Text.literal("Applied, but could not save rtmap-server.json; see the server log"));
+		}
+		return 1;
+	}
+
+	private static int queryChunkDataSharing(CommandContext<ServerCommandSource> context) {
+		boolean enabled = ServerConfig.get().chunkDataSharing();
+		context.getSource().sendFeedback(() -> Text.literal("chunk_data_sharing is " + enabled), false);
+		return enabled ? 1 : 0;
+	}
+
+	private static int setChunkDataSharing(CommandContext<ServerCommandSource> context) {
+		boolean enabled = BoolArgumentType.getBool(context, "enabled");
+		boolean saved = ServerConfig.update(ServerConfig.get().withChunkDataSharing(enabled));
+		ServerNetworking.sendPermissionsToAll(context.getSource().getServer());
+
+		context.getSource().sendFeedback(() -> Text.literal("chunk_data_sharing set to " + enabled), true);
 		if (!saved) {
 			context.getSource().sendError(Text.literal("Applied, but could not save rtmap-server.json; see the server log"));
 		}

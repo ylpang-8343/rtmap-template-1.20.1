@@ -12,6 +12,8 @@ import com.cabbage.rtmap.client.map.layer.MapLayer;
 import com.cabbage.rtmap.client.map.layer.MapLayers;
 import com.cabbage.rtmap.client.network.ClientSession;
 import com.cabbage.rtmap.client.network.ManualSeed;
+import com.cabbage.rtmap.client.ui.NavButton;
+import com.cabbage.rtmap.client.ui.Theme;
 import com.cabbage.rtmap.client.waypoint.TextPromptScreen;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -36,9 +38,12 @@ public final class MapSettingsScreen extends Screen {
 	private static final int MAX_WIDGET_WIDTH = 200;
 	private static final int MARGIN = 8;
 	private static final int SIDE_WIDTH = 96;
-	private static final int SEARCH_TOP = 20;
-	private static final int LIST_TOP = 44;
-	private static final int BOTTOM_HEIGHT = 32;
+	private static final int TITLE_BAR = 22;
+	private static final int PANEL_TOP = 28;
+	private static final int PANEL_PADDING = 4;
+	private static final int SEARCH_TOP = PANEL_TOP + 6;
+	private static final int LIST_TOP = PANEL_TOP + 28;
+	private static final int BOTTOM_HEIGHT = 36;
 
 	private enum Category {
 		MINIMAP("minimap"),
@@ -70,7 +75,6 @@ public final class MapSettingsScreen extends Screen {
 
 	private final Screen parent;
 	private final List<Option> options = new ArrayList<>();
-	private final List<ButtonWidget> categoryButtons = new ArrayList<>();
 	private OptionList list;
 	private String query = "";
 	private int widgetWidth = MAX_WIDGET_WIDTH;
@@ -146,10 +150,19 @@ public final class MapSettingsScreen extends Screen {
 		});
 	}
 
+	/** Left edge of the content panel's inside: past the sidebar panel, a gap, and the panel's own padding. */
+	private static int listX() {
+		return MARGIN + SIDE_WIDTH + 2 * PANEL_PADDING + 4 + PANEL_PADDING;
+	}
+
+	private int listWidth() {
+		return width - MARGIN - PANEL_PADDING - listX();
+	}
+
 	@Override
 	protected void init() {
-		int listX = MARGIN + SIDE_WIDTH + 6;
-		int listWidth = width - listX - MARGIN;
+		int listX = listX();
+		int listWidth = listWidth();
 		widgetWidth = Math.max(100, Math.min(MAX_WIDGET_WIDTH, listWidth - 28));
 
 		TextFieldWidget search = new TextFieldWidget(textRenderer, listX, SEARCH_TOP, listWidth, 18, Text.translatable("option.rtmap.search"));
@@ -157,46 +170,36 @@ public final class MapSettingsScreen extends Screen {
 		search.setText(query);
 		addDrawableChild(search);
 
-		categoryButtons.clear();
-		int y = LIST_TOP;
+		int y = PANEL_TOP + PANEL_PADDING;
 		for (Category category : Category.values()) {
-			ButtonWidget button = ButtonWidget.builder(category.title(), pressed -> {
-				selectedCategory = category;
-				// Choosing a page leaves the search, otherwise the click would seem to do nothing.
-				query = "";
-				search.setText("");
-				updateCategoryButtons();
-				rebuild();
-			}).dimensions(MARGIN, y, SIDE_WIDTH, HEIGHT).build();
-			categoryButtons.add(addDrawableChild(button));
+			// The open page is marked; while searching no page is, since the results come from all of them.
+			addDrawableChild(new NavButton(MARGIN + PANEL_PADDING, y, SIDE_WIDTH, HEIGHT, category.title(),
+				() -> query.trim().isEmpty() && selectedCategory == category, pressed -> {
+					selectedCategory = category;
+					// Choosing a page leaves the search, otherwise the click would seem to do nothing.
+					query = "";
+					search.setText("");
+					rebuild();
+				}));
 			y += ROW_HEIGHT;
 		}
 
-		list = new OptionList(client, listWidth, height, LIST_TOP, height - BOTTOM_HEIGHT);
+		list = new OptionList(client, listWidth, height, LIST_TOP, height - BOTTOM_HEIGHT - PANEL_PADDING);
 		list.setLeftPos(listX);
+		list.setRenderBackground(false);
+		list.setRenderHorizontalShadows(false);
 		addDrawableChild(list);
 
 		search.setChangedListener(text -> {
 			query = text;
-			updateCategoryButtons();
 			rebuild();
 		});
 		setInitialFocus(search);
 
 		addDrawableChild(ButtonWidget.builder(ScreenTexts.DONE, pressed -> close())
-			.dimensions(width / 2 - 100, height - 26, 200, HEIGHT).build());
+			.dimensions(width / 2 - 100, height - 28, 200, HEIGHT).build());
 
-		updateCategoryButtons();
 		rebuild();
-	}
-
-	/** The open page's button is switched off, which is how it shows as selected. None is while searching. */
-	private void updateCategoryButtons() {
-		boolean searching = !query.trim().isEmpty();
-		Category[] categories = Category.values();
-		for (int i = 0; i < categoryButtons.size(); i++) {
-			categoryButtons.get(i).active = searching || categories[i] != selectedCategory;
-		}
 	}
 
 	private void rebuild() {
@@ -247,14 +250,18 @@ public final class MapSettingsScreen extends Screen {
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		renderBackground(context);
-		context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 6, 0xFFFFFF);
+		Theme.backdrop(context, width, height);
+		Theme.bar(context, 0, 0, width, TITLE_BAR, true);
+		context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 7, Theme.TEXT);
+
+		int panelHeight = height - BOTTOM_HEIGHT - PANEL_TOP;
+		Theme.panel(context, MARGIN, PANEL_TOP, SIDE_WIDTH + 2 * PANEL_PADDING, panelHeight);
+		Theme.panel(context, listX() - PANEL_PADDING, PANEL_TOP, listWidth() + 2 * PANEL_PADDING, panelHeight);
 		super.render(context, mouseX, mouseY, delta);
 
 		if (list.isEmpty()) {
-			int listX = MARGIN + SIDE_WIDTH + 6;
 			context.drawCenteredTextWithShadow(textRenderer, Text.translatable("option.rtmap.search_empty"),
-				listX + (width - listX - MARGIN) / 2, height / 2, 0xA0A0A0);
+				listX() + listWidth() / 2, height / 2, 0xA0A0A0);
 		}
 	}
 

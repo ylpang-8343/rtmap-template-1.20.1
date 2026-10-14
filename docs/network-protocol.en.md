@@ -23,8 +23,10 @@ Namespace: `rtmap`.
 | `rtmap:permissions` | S2C | Notifies the client when permissions change (op changes, config changes) |
 | `rtmap:seed_request` | C2S | Requests the world seed |
 | `rtmap:seed_response` | S2C | Returns the seed, or a rejection reason |
+| `rtmap:chunk_query` | C2S | Asks about a rectangle of chunks: loading state, counts, or both |
+| `rtmap:chunk_data` | S2C | Returns that data, or a rejection reason |
 
-Later features (chunk loading state, entity density, MSPT, etc.) each get their own channel and are declared in `features`.
+Feature ids so far: `seed`, `chunk_state`, `chunk_load`. Later features (MSPT, real chunk timing, etc.) each get their own channel and are declared in `features`.
 
 ## 3. Handshake
 
@@ -97,10 +99,10 @@ Server requirements:
 `rtmap:permissions` (S2C): `grants` (same as in `server_hello`).
 
 Triggers:
-- `seed_sharing` is changed by a command or a config reload.
+- `seed_sharing` or `chunk_data_sharing` is changed by a command or a config reload.
 - A player's op status changes. Vanilla has no corresponding Fabric event, so a Mixin on `PlayerManager` (`addToOperators` / `removeFromOperators`) is needed.
 
-On receipt, if `seed` is no longer in `grants`, the client **immediately stops using the seed and clears it from memory**, no longer uses it for slime chunk calculation, and deletes any server-provided seed from the on-disk cache.
+On receipt, if `chunk_state` or `chunk_load` is no longer in `grants`, the client stops asking and hides the chunk layers. If `seed` is no longer in `grants`, the client **immediately stops using the seed and clears it from memory**, no longer uses it for slime chunk calculation, and deletes any server-provided seed from the on-disk cache.
 
 > Limitation: this cannot stop a player from recording the seed themselves or modifying the client. Revocation only guarantees that this mod, behaving normally, stops using it. This must be stated in the documentation.
 
@@ -108,16 +110,75 @@ On receipt, if `seed` is no longer in `grants`, the client **immediately stops u
 
 - **A seed provided by a server is kept in memory only and is never written to disk.** It is only usable while the server still grants it, so a disk copy would add nothing except a way to outlive revocation. The client simply asks again on the next join (subject to the rate limit).
 - `world_id` (the UUID sent by the server) identifies the world, not the server address. This keeps multiple worlds behind one address, port changes and domain changes from mixing up data.
-- Manually entered seeds (not implemented yet) will be stored on disk per `world_id`. If the server does not have this mod there is no `world_id`, so the key falls back to "server address + port".
+- Manually entered seeds are stored on disk per world, next to that world's map (`seed.json`). If the server does not have this mod there is no `world_id`, so the world is identified by "server address + port".
 - When authorization is revoked, **only the seed provided by the server is cleared**; manually entered seeds are kept.
 
-## 5. Server config and commands
+## 5. Chunk loading and load data
+
+Two features share one request / response pair: `chunk_state` (how each chunk is loaded and what holds it) and `chunk_load` (entity, block entity and hopper counts per chunk).
+
+### 5.1 Authorization rule
+
+```
+allowed = isOp(player) || config.chunk_data_sharing
+```
+
+- Singleplayer and the player's own LAN world: the client reads the integrated server directly. **The network protocol is not used.**
+- Multiplayer servers: both features are delivered in `grants` like the seed, under the same rule, and the rule is re-checked on every query. `chunk_data_sharing` defaults to `false`.
+
+### 5.2 `chunk_query` (C2S)
+
+Stateless: every query is answered on its own, and the server keeps nothing between queries except the rate-limit counter.
+
+| Field | Type | Description |
+|---|---|---|
+| dimension | String (at most 128) | Must equal the player's current dimension id; this guards against a query that races a dimension change |
+| min_chunk_x | Int | West edge of the rectangle, in chunks |
+| min_chunk_z | Int | North edge of the rectangle, in chunks |
+| width | VarInt | 1 to 256 |
+| height | VarInt | 1 to 256; `width * height` is at most 65536 |
+| what | Byte | Bit 0 = loading state (`chunk_state`), bit 1 = counts (`chunk_load`) |
+
+### 5.3 `chunk_data` (S2C)
+
+| Field | Type | Description |
+|---|---|---|
+| status | Byte | 0 = OK, 1 = not authorized, 2 = rate limited, 3 = bad request, 4 = wrong dimension |
+
+When `status = 0`, a snapshot follows:
+
+| Field | Type | Description |
+|---|---|---|
+| dimension | String | The dimension the data is for; the client drops it if that is no longer its dimension |
+| min_chunk_x, min_chunk_z | Int, Int | As asked |
+| width, height | VarInt, VarInt | As asked |
+| have | Byte | Bit 0 = `state` present, bit 1 = `load` present |
+| state | Byte array | `width * height` bytes, row by row from `min_chunk_z`, west to east. Present if bit 0 of `have` is set |
+| load | see below | Present if bit 1 of `have` is set |
+
+A state byte: bits 0 to 1 are the level (0 = not loaded, 1 = border, 2 = block ticking, 3 = entity ticking). Bits 2 to 7 are the kinds of ticket holding the chunk: player, portal, force-load, spawn area, ender dragon, other.
+
+`load`: a VarInt count of non-empty chunks, then for each one a VarInt index gap (its index minus the previous index minus 1, starting from -1), then VarInt entities, VarInt block entities and VarInt hoppers. Counts are clamped to 65535.
+
+Server requirements:
+
+1. Read on the server thread only, and read-only. Two accessor mixins are used: `ThreadedAnvilChunkStorage.getChunkHolder` and `ChunkTicketManager.ticketsByPosition`.
+2. Rate limit: 10 queries per 5 seconds per player. These two numbers are fixed in the code and are not settings yet.
+3. Validate before reading anything: body size, `what` bits, size limits, coordinate range (at most 1,900,000 chunks from the origin), negotiated features, permission, and dimension.
+4. A holder at the entity-ticking level whose chunk is not within a player's simulation distance (`ChunkTicketManager.shouldTickEntities` is false) is reported as block ticking.
+
+Client behaviour: it asks for the visible area plus 3 chunks around it, at most every 1.5 seconds and never twice within 0.6 seconds, backs off for 5 seconds after a "rate limited" or "not authorized" answer, and discards an answer for another dimension. The client accepts a `chunk_data` packet of up to 1 MiB.
+
+These two channels do not carry their own version byte yet, so an incompatible change to them needs a protocol version bump.
+
+## 6. Server config and commands
 
 `config/rtmap-server.json`:
 
 ```json
 {
   "seed_sharing": false,
+  "chunk_data_sharing": false,
   "command_permission_level": 3,
   "seed_request_limit": 3,
   "seed_request_window_seconds": 30
@@ -127,6 +188,7 @@ On receipt, if `seed` is no longer in `grants`, the client **immediately stops u
 | Key | Default | Allowed range |
 |---|---|---|
 | `seed_sharing` | `false` | boolean |
+| `chunk_data_sharing` | `false` | boolean |
 | `command_permission_level` | 3 | 2 to 4 |
 | `seed_request_limit` | 3 | 1 to 60 |
 | `seed_request_window_seconds` | 30 | 10 to 3600 |
@@ -137,6 +199,8 @@ Commands (the required permission level is `command_permission_level`):
 |---|---|
 | `/rtmap seed_sharing` | Shows the current value |
 | `/rtmap seed_sharing <true\|false>` | Changes and saves the switch, and sends `permissions` to online players |
+| `/rtmap chunk_data_sharing` | Shows the current value |
+| `/rtmap chunk_data_sharing <true\|false>` | Changes and saves the switch, and sends `permissions` to online players |
 | `/rtmap reload` | Reloads the config file, sends `permissions`, and refreshes players' command trees |
 
 ### Tamper resistance
@@ -153,30 +217,31 @@ Not covered: anyone with access to the server's files or console is an administr
 
 `world_id` is stored in a `PersistentState` of the overworld and generated randomly on first load. If a world save is copied to a new server, the `world_id` goes with it. To tell copies apart, an administrator can delete that state so a new one is generated.
 
-## 6. General requirements
+## 7. General requirements
 
-- **Packet size:** every packet body has a limit (e.g. 4 KB). Anything larger is dropped and logged. Future channels that carry chunk data need their own limits.
+- **Packet size:** every packet body has a limit (e.g. 4 KB). Anything larger is dropped and logged. The one exception is `chunk_data`, which the client accepts up to 1 MiB, with every size inside it checked against the query limits.
 - **Strings and lists:** limit lengths and element counts (e.g. at most 64 entries in `features`, each at most 64 characters) to prevent abuse.
 - **Threading:** receive callbacks run on the network thread. Anything touching game state must hop to the main thread (`server.execute` / `client.execute`).
 - **Do not trust the client:** the client's `features` is only a declaration. The server uses it to decide whether to send data, but authorization depends solely on the server's own permission checks.
 - **Log levels:** INFO for handshake results, DEBUG for permission denials, WARN for protocol errors.
 
-## 7. Adding future features
+## 8. Adding future features
 
-To add a feature (e.g. `chunk_state`):
+To add a feature (e.g. `mspt`):
 1. Add a string ID to `features`, and add a switch and permission check in the server config.
 2. Add a dedicated channel whose packets carry their own version byte, so changing only that feature does not require a protocol version bump.
 3. Deliver the authorization in `grants`, and notify changes through the `permissions` channel.
-4. On the client, the corresponding layer is not selectable without authorization; the UI shows it greyed out with the reason.
+4. On the client, the corresponding layer is hidden while the feature is not available (it is left out of the toolbar and the settings), and the full-screen map says why if the server refuses a query.
 
-## 8. Decisions
+## 9. Decisions
 
 - The command permission level is read from config (clamped to 2 to 4, default 3).
-- The rate-limit parameters are configurable by administrators, within hard limits (see section 5).
+- The rate-limit parameters are configurable by administrators, within hard limits (see section 6).
 - The Servux compatibility layer (structure data) lives outside this protocol as a separate implementation and does not use the `rtmap:` channels.
 
-## 9. Not implemented yet
+## 10. Not implemented yet
 
-- Manual seed entry and its on-disk storage.
+- Configurable chunk query limits (size and rate are fixed in the code), and a version byte for the chunk channels.
+- A channel for real per-chunk timing and MSPT.
 - Soft integration with `fabric-permissions-api` (node `rtmap.seed`).
-- Packet-level automated tests; only the build and a dedicated-server startup have been checked.
+- Packet-level automated tests. The `chunk_query` / `chunk_data` exchange on a dedicated server with permissions has not been tested yet.

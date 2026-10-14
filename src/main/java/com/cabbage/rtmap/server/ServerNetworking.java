@@ -41,8 +41,34 @@ public final class ServerNetworking {
 		}
 	}
 
-	private static final Set<String> SERVER_FEATURES = Set.of(RTMapChannels.FEATURE_SEED);
+	/** What a chunk_query asks for; parsed on the network thread, answered on the server thread. */
+	private record ChunkQuery(String dimension, int minChunkX, int minChunkZ, int width, int height, int what) {
+		static ChunkQuery read(PacketByteBuf buf, ServerPlayerEntity player) {
+			if (buf.readableBytes() > RTMapChannels.MAX_PACKET_BYTES) {
+				RTMap.LOGGER.warn("Dropped oversized chunk_query from {}", player.getGameProfile().getName());
+				return null;
+			}
+			try {
+				return new ChunkQuery(buf.readString(128), buf.readInt(), buf.readInt(), buf.readVarInt(), buf.readVarInt(),
+					buf.readUnsignedByte());
+			} catch (RuntimeException e) {
+				RTMap.LOGGER.warn("Malformed chunk_query from {}", player.getGameProfile().getName(), e);
+				return null;
+			}
+		}
+	}
+
+	private static final Set<String> SERVER_FEATURES = Set.of(
+		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD);
 	private static final Map<UUID, Session> SESSIONS = new ConcurrentHashMap<>();
+
+	private static final RateLimiter SEED_LIMITER = new RateLimiter();
+	private static final RateLimiter CHUNK_LIMITER = new RateLimiter();
+	/** A map that refreshes every second or two stays well under this; a flood of queries does not. */
+	private static final int CHUNK_QUERY_LIMIT = 10;
+	private static final int CHUNK_QUERY_WINDOW_SECONDS = 5;
+	/** Chunk coordinates beyond the world border limit (30 million blocks) are never valid. */
+	private static final int MAX_CHUNK_COORDINATE = 1_900_000;
 
 	private ServerNetworking() {
 	}
@@ -59,10 +85,18 @@ public final class ServerNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(RTMapChannels.SEED_REQUEST, (server, player, handler, buf, sender) ->
 			server.execute(() -> onSeedRequest(server, player)));
 
+		ServerPlayNetworking.registerGlobalReceiver(RTMapChannels.CHUNK_QUERY, (server, player, handler, buf, sender) -> {
+			ChunkQuery query = ChunkQuery.read(buf, player);
+			if (query != null) {
+				server.execute(() -> onChunkQuery(player, query));
+			}
+		});
+
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			UUID id = handler.getPlayer().getUuid();
 			SESSIONS.remove(id);
-			SeedRateLimiter.forget(id);
+			SEED_LIMITER.forget(id);
+			CHUNK_LIMITER.forget(id);
 		});
 	}
 
@@ -107,7 +141,57 @@ public final class ServerNetworking {
 		if (features.contains(RTMapChannels.FEATURE_SEED) && SeedAccess.isAllowed(player)) {
 			grants.add(RTMapChannels.FEATURE_SEED);
 		}
+		if (ChunkDataAccess.isAllowed(player)) {
+			if (features.contains(RTMapChannels.FEATURE_CHUNK_STATE)) {
+				grants.add(RTMapChannels.FEATURE_CHUNK_STATE);
+			}
+			if (features.contains(RTMapChannels.FEATURE_CHUNK_LOAD)) {
+				grants.add(RTMapChannels.FEATURE_CHUNK_LOAD);
+			}
+		}
 		return grants;
+	}
+
+	private static void onChunkQuery(ServerPlayerEntity player, ChunkQuery query) {
+		Session session = SESSIONS.get(player.getUuid());
+		if (session == null) {
+			return; // never handshaken; stay silent
+		}
+
+		int status = chunkQueryStatus(player, session, query);
+		PacketByteBuf out = PacketByteBufs.create();
+		out.writeByte(status);
+		if (status == RTMapChannels.STATUS_CHUNK_OK) {
+			ChunkDataCollector.collect(player.getServerWorld(), query.minChunkX(), query.minChunkZ(),
+				query.width(), query.height(), query.what()).write(out);
+		}
+		ServerPlayNetworking.send(player, RTMapChannels.CHUNK_DATA, out);
+	}
+
+	private static int chunkQueryStatus(ServerPlayerEntity player, Session session, ChunkQuery query) {
+		if (!CHUNK_LIMITER.tryAcquire(player.getUuid(), CHUNK_QUERY_LIMIT, CHUNK_QUERY_WINDOW_SECONDS)) {
+			return RTMapChannels.STATUS_CHUNK_RATE_LIMITED;
+		}
+		int what = query.what();
+		boolean wantState = (what & RTMapChannels.QUERY_STATE) != 0;
+		boolean wantLoad = (what & RTMapChannels.QUERY_LOAD) != 0;
+		if ((what & ~(RTMapChannels.QUERY_STATE | RTMapChannels.QUERY_LOAD)) != 0 || (!wantState && !wantLoad)
+			|| query.width() < 1 || query.height() < 1
+			|| query.width() > RTMapChannels.MAX_QUERY_SIDE || query.height() > RTMapChannels.MAX_QUERY_SIDE
+			|| (long) query.width() * query.height() > RTMapChannels.MAX_QUERY_CHUNKS
+			|| Math.abs(query.minChunkX()) > MAX_CHUNK_COORDINATE || Math.abs(query.minChunkZ()) > MAX_CHUNK_COORDINATE) {
+			return RTMapChannels.STATUS_CHUNK_BAD_REQUEST;
+		}
+		if (!ChunkDataAccess.isAllowed(player)
+			|| (wantState && !session.features().contains(RTMapChannels.FEATURE_CHUNK_STATE))
+			|| (wantLoad && !session.features().contains(RTMapChannels.FEATURE_CHUNK_LOAD))) {
+			return RTMapChannels.STATUS_CHUNK_NOT_AUTHORIZED;
+		}
+		// The client may have asked just before changing dimension; answering for the wrong one would mislead it.
+		if (!player.getServerWorld().getRegistryKey().getValue().toString().equals(query.dimension())) {
+			return RTMapChannels.STATUS_CHUNK_WRONG_DIMENSION;
+		}
+		return RTMapChannels.STATUS_CHUNK_OK;
 	}
 
 	private static void onSeedRequest(MinecraftServer server, ServerPlayerEntity player) {
@@ -118,7 +202,7 @@ public final class ServerNetworking {
 
 		ServerConfig config = ServerConfig.get();
 		int status;
-		if (!SeedRateLimiter.tryAcquire(player.getUuid(), config.seedRequestLimit(), config.seedRequestWindowSeconds())) {
+		if (!SEED_LIMITER.tryAcquire(player.getUuid(), config.seedRequestLimit(), config.seedRequestWindowSeconds())) {
 			status = RTMapChannels.STATUS_SEED_RATE_LIMITED;
 		} else if (!session.features().contains(RTMapChannels.FEATURE_SEED)) {
 			status = RTMapChannels.STATUS_SEED_FEATURE_DISABLED;

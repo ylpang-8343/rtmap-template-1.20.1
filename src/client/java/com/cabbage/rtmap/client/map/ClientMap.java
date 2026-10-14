@@ -1,5 +1,6 @@
 package com.cabbage.rtmap.client.map;
 
+import com.cabbage.rtmap.client.chunk.ChunkDataClient;
 import com.cabbage.rtmap.client.config.ClientConfig;
 import com.cabbage.rtmap.client.portal.PortalScanner;
 import com.cabbage.rtmap.client.portal.PortalStore;
@@ -36,6 +37,7 @@ public final class ClientMap {
 		Minimap.init();
 		Waypoints.init();
 		PortalScanner.init();
+		ChunkDataClient.init();
 
 		ClientChunkEvents.CHUNK_LOAD.register((world, chunk) -> MapUpdater.queue(world, chunk.getPos()));
 

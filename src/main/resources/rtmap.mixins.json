@@ -3,7 +3,9 @@
 	"package": "com.cabbage.rtmap.mixin",
 	"compatibilityLevel": "JAVA_17",
 	"mixins": [
-		"PlayerManagerMixin"
+		"ChunkTicketManagerAccessor",
+		"PlayerManagerMixin",
+		"ThreadedAnvilChunkStorageAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

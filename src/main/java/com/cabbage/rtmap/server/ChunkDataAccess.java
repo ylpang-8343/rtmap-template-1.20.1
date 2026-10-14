@@ -1,0 +1,16 @@
+package com.cabbage.rtmap.server;
+
+import com.cabbage.rtmap.config.ServerConfig;
+import net.minecraft.server.network.ServerPlayerEntity;
+
+public final class ChunkDataAccess {
+	private static final int OP_LEVEL = 2;
+
+	private ChunkDataAccess() {
+	}
+
+	/** Ops always see chunk loading and load data; everyone else needs the server-wide switch. */
+	public static boolean isAllowed(ServerPlayerEntity player) {
+		return player.hasPermissionLevel(OP_LEVEL) || ServerConfig.get().chunkDataSharing();
+	}
+}
