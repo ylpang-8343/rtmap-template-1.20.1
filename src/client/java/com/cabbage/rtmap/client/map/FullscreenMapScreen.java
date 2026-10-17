@@ -15,6 +15,7 @@ import com.cabbage.rtmap.client.map.layer.MapLayers;
 import com.cabbage.rtmap.client.map.layer.PortalLayer;
 import com.cabbage.rtmap.client.measure.MeasureTool;
 import com.cabbage.rtmap.client.network.ClientSession;
+import com.cabbage.rtmap.client.perf.ServerPerformanceClient;
 import com.cabbage.rtmap.client.portal.Portal;
 import com.cabbage.rtmap.client.portal.PortalStore;
 import com.cabbage.rtmap.client.ui.ContextMenu;
@@ -297,8 +298,30 @@ public final class FullscreenMapScreen extends Screen {
 		context.drawText(textRenderer, cursor, x, textY, Theme.TEXT, false);
 		x += textRenderer.getWidth(cursor) + 12;
 
-		int meWidth = textRenderer.getWidth(me);
-		int meX = width - meWidth - 6;
+		int meX = width - textRenderer.getWidth(me) - 6;
+
+		// Room is tight on a small window, so the pieces are placed by priority: the cursor always, then the server's
+		// tick time (in full if it fits, short if not), then "you", then the other dimension's coordinates.
+		Text mspt = null;
+		int msptX = 0;
+		boolean showMe = true;
+		Text msptLong = msptText(true);
+		if (msptLong != null) {
+			Text msptShort = msptText(false);
+			if (meX - textRenderer.getWidth(msptLong) - 12 > x) {
+				mspt = msptLong;
+				msptX = meX - textRenderer.getWidth(msptLong) - 12;
+			} else if (meX - textRenderer.getWidth(msptShort) - 12 > x) {
+				mspt = msptShort;
+				msptX = meX - textRenderer.getWidth(msptShort) - 12;
+			} else if (width - textRenderer.getWidth(msptShort) - 6 > x) {
+				// No room for "you" as well: the tick time wins.
+				mspt = msptShort;
+				msptX = width - textRenderer.getWidth(msptShort) - 6;
+				showMe = false;
+			}
+		}
+		int limit = mspt != null ? msptX : meX;
 
 		// Where the same spot is in the other dimension of the overworld/nether pair, if there is room for it.
 		String dimension = Waypoints.dimensionId(client.world);
@@ -306,13 +329,38 @@ public final class FullscreenMapScreen extends Screen {
 		if (other != null && ClientConfig.showConvertedCoordinates()) {
 			Text converted = Text.translatable("screen.rtmap.map.converted", Waypoints.dimensionName(other),
 				DimensionScale.convert(blockX, dimension, other), DimensionScale.convert(blockZ, dimension, other));
-			if (x + textRenderer.getWidth(converted) + 12 < meX) {
+			if (x + textRenderer.getWidth(converted) + 12 < limit) {
 				context.drawText(textRenderer, converted, x, textY, Theme.ACCENT, false);
 			}
 		}
-		if (meX > 6 + textRenderer.getWidth(cursor) + 12) {
+		if (mspt != null) {
+			context.drawText(textRenderer, mspt, msptX, textY, Theme.TEXT, false);
+		}
+		if (showMe && meX > x) {
 			context.drawText(textRenderer, me, meX, textY, Theme.TEXT_MUTED, false);
 		}
+	}
+
+	/**
+	 * "MSPT 12.3 (worst 40.1)  TPS 20.0", or without the worst tick, coloured by how close the server is to its 50 ms
+	 * budget. Null if the server does not share it or no reading has arrived yet.
+	 */
+	private Text msptText(boolean withWorst) {
+		if (!ServerPerformanceClient.available()) {
+			return null;
+		}
+		ServerPerformanceClient.want();
+		float average = ServerPerformanceClient.averageMs();
+		if (average < 0) {
+			return null;
+		}
+		String averageText = String.format(Locale.ROOT, "%.1f", average);
+		String tps = String.format(Locale.ROOT, "%.1f", Math.min(20.0, 1000.0 / Math.max(average, 1.0f)));
+		int color = average < 40f ? 0x80FF80 : average < 50f ? 0xFFD27F : 0xFF6060;
+		MutableText text = withWorst
+			? Text.translatable("map.rtmap.status.mspt", averageText, String.format(Locale.ROOT, "%.1f", ServerPerformanceClient.worstMs()), tps)
+			: Text.translatable("map.rtmap.status.mspt_short", averageText, tps);
+		return text.styled(style -> style.withColor(color));
 	}
 
 	/** Things the player should know right now, stacked above the status line. */

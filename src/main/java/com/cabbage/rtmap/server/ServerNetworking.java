@@ -59,11 +59,12 @@ public final class ServerNetworking {
 	}
 
 	private static final Set<String> SERVER_FEATURES = Set.of(
-		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD);
+		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD, RTMapChannels.FEATURE_MSPT);
 	private static final Map<UUID, Session> SESSIONS = new ConcurrentHashMap<>();
 
 	private static final RateLimiter SEED_LIMITER = new RateLimiter();
 	private static final RateLimiter CHUNK_LIMITER = new RateLimiter();
+	private static final RateLimiter MSPT_LIMITER = new RateLimiter();
 	/** A map that refreshes every second or two stays well under this; a flood of queries does not. */
 	private static final int CHUNK_QUERY_LIMIT = 10;
 	private static final int CHUNK_QUERY_WINDOW_SECONDS = 5;
@@ -92,11 +93,15 @@ public final class ServerNetworking {
 			}
 		});
 
+		ServerPlayNetworking.registerGlobalReceiver(RTMapChannels.MSPT_QUERY, (server, player, handler, buf, sender) ->
+			server.execute(() -> onMsptQuery(server, player)));
+
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			UUID id = handler.getPlayer().getUuid();
 			SESSIONS.remove(id);
 			SEED_LIMITER.forget(id);
 			CHUNK_LIMITER.forget(id);
+			MSPT_LIMITER.forget(id);
 		});
 	}
 
@@ -148,6 +153,9 @@ public final class ServerNetworking {
 			if (features.contains(RTMapChannels.FEATURE_CHUNK_LOAD)) {
 				grants.add(RTMapChannels.FEATURE_CHUNK_LOAD);
 			}
+			if (features.contains(RTMapChannels.FEATURE_MSPT)) {
+				grants.add(RTMapChannels.FEATURE_MSPT);
+			}
 		}
 		return grants;
 	}
@@ -166,6 +174,31 @@ public final class ServerNetworking {
 				query.width(), query.height(), query.what()).write(out);
 		}
 		ServerPlayNetworking.send(player, RTMapChannels.CHUNK_DATA, out);
+	}
+
+	private static void onMsptQuery(MinecraftServer server, ServerPlayerEntity player) {
+		Session session = SESSIONS.get(player.getUuid());
+		if (session == null) {
+			return; // never handshaken; stay silent
+		}
+
+		int status;
+		if (!MSPT_LIMITER.tryAcquire(player.getUuid(), CHUNK_QUERY_LIMIT, CHUNK_QUERY_WINDOW_SECONDS)) {
+			status = RTMapChannels.STATUS_MSPT_RATE_LIMITED;
+		} else if (!ChunkDataAccess.isAllowed(player) || !session.features().contains(RTMapChannels.FEATURE_MSPT)) {
+			status = RTMapChannels.STATUS_MSPT_NOT_AUTHORIZED;
+		} else {
+			status = RTMapChannels.STATUS_MSPT_OK;
+		}
+
+		PacketByteBuf out = PacketByteBufs.create();
+		out.writeByte(status);
+		if (status == RTMapChannels.STATUS_MSPT_OK) {
+			float[] millis = ServerPerformance.recentTickMillis(server);
+			out.writeFloat(millis[0]);
+			out.writeFloat(millis[1]);
+		}
+		ServerPlayNetworking.send(player, RTMapChannels.MSPT_DATA, out);
 	}
 
 	private static int chunkQueryStatus(ServerPlayerEntity player, Session session, ChunkQuery query) {

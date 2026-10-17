@@ -13,6 +13,8 @@
 	"map.rtmap.center": "回到我的位置",
 	"map.rtmap.status.cursor": "X %s  Z %s   区块 %s, %s",
 	"map.rtmap.status.player": "你：%s, %s, %s   缩放 %sx",
+	"map.rtmap.status.mspt": "MSPT %s（最高 %s）  TPS %s",
+	"map.rtmap.status.mspt_short": "MSPT %s  TPS %s",
 	"menu.rtmap.new_waypoint": "在此创建路径点",
 	"menu.rtmap.copy_coordinates": "复制坐标",
 	"menu.rtmap.copied": "已复制：%s",

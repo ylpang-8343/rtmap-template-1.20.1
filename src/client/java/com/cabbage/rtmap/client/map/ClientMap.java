@@ -2,6 +2,7 @@ package com.cabbage.rtmap.client.map;
 
 import com.cabbage.rtmap.client.chunk.ChunkDataClient;
 import com.cabbage.rtmap.client.config.ClientConfig;
+import com.cabbage.rtmap.client.perf.ServerPerformanceClient;
 import com.cabbage.rtmap.client.portal.PortalScanner;
 import com.cabbage.rtmap.client.portal.PortalStore;
 import com.cabbage.rtmap.client.waypoint.WaypointStore;
@@ -38,6 +39,7 @@ public final class ClientMap {
 		Waypoints.init();
 		PortalScanner.init();
 		ChunkDataClient.init();
+		ServerPerformanceClient.init();
 
 		ClientChunkEvents.CHUNK_LOAD.register((world, chunk) -> MapUpdater.queue(world, chunk.getPos()));
 

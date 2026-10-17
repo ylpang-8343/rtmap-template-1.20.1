@@ -25,8 +25,10 @@ Namespace: `rtmap`.
 | `rtmap:seed_response` | S2C | Returns the seed, or a rejection reason |
 | `rtmap:chunk_query` | C2S | Asks about a rectangle of chunks: loading state, counts, or both |
 | `rtmap:chunk_data` | S2C | Returns that data, or a rejection reason |
+| `rtmap:mspt_query` | C2S | Asks for the server's recent tick time |
+| `rtmap:mspt_data` | S2C | Returns the average and the worst of the last 100 ticks, or a rejection reason |
 
-Feature ids so far: `seed`, `chunk_state`, `chunk_load`. Later features (MSPT, real chunk timing, etc.) each get their own channel and are declared in `features`.
+Feature ids so far: `seed`, `chunk_state`, `chunk_load`, `mspt`. Later features (real chunk timing, etc.) each get their own channel and are declared in `features`.
 
 ## 3. Handshake
 
@@ -169,7 +171,19 @@ Server requirements:
 
 Client behaviour: it asks for the visible area plus 3 chunks around it, at most every 1.5 seconds and never twice within 0.6 seconds, backs off for 5 seconds after a "rate limited" or "not authorized" answer, and discards an answer for another dimension. The client accepts a `chunk_data` packet of up to 1 MiB.
 
-These two channels do not carry their own version byte yet, so an incompatible change to them needs a protocol version bump.
+The chunk channels do not carry their own version byte yet, so an incompatible change to them needs a protocol version bump.
+
+### 5.4 `mspt_query` / `mspt_data` (feature `mspt`)
+
+The same authorization rule as 5.1 (ops always, everyone else only with `chunk_data_sharing`), re-checked on every query, and the same singleplayer shortcut. `mspt_query` has an empty body.
+
+| Field of `mspt_data` | Type | Description |
+|---|---|---|
+| status | Byte | 0 = OK, 1 = not authorized, 2 = rate limited |
+| average | Float | Only when `status = 0`. Mean of the last 100 server ticks, in milliseconds |
+| worst | Float | Only when `status = 0`. Longest of those ticks, in milliseconds |
+
+Both numbers come from the game's own record of recent tick lengths (`MinecraftServer.lastTickLengths`); RTMap measures nothing. The rate limit is 10 queries per 5 seconds per player, fixed in the code. The client asks about every 2 seconds while the full-screen map is open and stops showing a reading older than 6 seconds. Like the chunk channels, these carry no version byte of their own yet.
 
 ## 6. Server config and commands
 
@@ -242,6 +256,6 @@ To add a feature (e.g. `mspt`):
 ## 10. Not implemented yet
 
 - Configurable chunk query limits (size and rate are fixed in the code), and a version byte for the chunk channels.
-- A channel for real per-chunk timing and MSPT.
+- A channel for real per-chunk timing.
 - Soft integration with `fabric-permissions-api` (node `rtmap.seed`).
-- Packet-level automated tests. The `chunk_query` / `chunk_data` exchange on a dedicated server with permissions has not been tested yet.
+- Packet-level automated tests. The `chunk_query` / `chunk_data` and `mspt_query` / `mspt_data` exchanges on a dedicated server with permissions have not been tested yet.

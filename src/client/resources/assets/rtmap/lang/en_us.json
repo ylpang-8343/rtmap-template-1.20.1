@@ -13,6 +13,8 @@
 	"map.rtmap.center": "Back To My Position",
 	"map.rtmap.status.cursor": "X %s  Z %s   chunk %s, %s",
 	"map.rtmap.status.player": "you: %s, %s, %s   zoom %sx",
+	"map.rtmap.status.mspt": "MSPT %s (worst %s)  TPS %s",
+	"map.rtmap.status.mspt_short": "MSPT %s  TPS %s",
 	"menu.rtmap.new_waypoint": "New waypoint here",
 	"menu.rtmap.copy_coordinates": "Copy coordinates",
 	"menu.rtmap.copied": "Copied: %s",

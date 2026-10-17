@@ -25,8 +25,10 @@ English version: [network-protocol.en.md](network-protocol.en.md)
 | `rtmap:seed_response` | S2C | 返回种子或拒绝原因 |
 | `rtmap:chunk_query` | C2S | 询问一个矩形范围的区块:加载状态、数量,或两者都要 |
 | `rtmap:chunk_data` | S2C | 返回这些数据或拒绝原因 |
+| `rtmap:mspt_query` | C2S | 询问服务端最近的 tick 耗时 |
+| `rtmap:mspt_data` | S2C | 返回最近 100 个 tick 的平均值和最大值,或拒绝原因 |
 
-目前的功能 ID:`seed`、`chunk_state`、`chunk_load`。后续功能(MSPT、真实区块耗时等)各自新增通道,并在 `features` 中声明。
+目前的功能 ID:`seed`、`chunk_state`、`chunk_load`、`mspt`。后续功能(真实区块耗时等)各自新增通道,并在 `features` 中声明。
 
 ## 3. 握手流程
 
@@ -169,7 +171,19 @@ allowed = isOp(player) || config.chunk_data_sharing
 
 客户端行为:请求可见区域再向外 3 个区块,最多每 1.5 秒一次,两次之间至少隔 0.6 秒;收到“请求过于频繁”或“未授权”后退避 5 秒;丢弃对应其他维度的回答。客户端接受最大 1 MiB 的 `chunk_data` 包。
 
-这两个通道目前还没有自己的版本字节,所以对它们做不兼容修改需要抬协议版本。
+区块通道目前还没有自己的版本字节,所以对它们做不兼容修改需要抬协议版本。
+
+### 5.4 `mspt_query` / `mspt_data`(功能 `mspt`)
+
+授权规则与 5.1 相同(OP 始终可以,其他人只有开启 `chunk_data_sharing` 才可以),每次查询都重新检查,单人游戏同样走捷径。`mspt_query` 是空包体。
+
+| `mspt_data` 的字段 | 类型 | 说明 |
+|---|---|---|
+| status | Byte | 0 = OK,1 = 未授权,2 = 请求过于频繁 |
+| average | Float | 仅 `status = 0` 时存在。最近 100 个服务端 tick 的平均值,单位毫秒 |
+| worst | Float | 仅 `status = 0` 时存在。这些 tick 里最长的一个,单位毫秒 |
+
+两个数字都来自游戏自己记录的近期 tick 时长(`MinecraftServer.lastTickLengths`),RTMap 不做任何测量。限频是每位玩家 5 秒内最多 10 次查询,写死在代码里。全屏地图打开时客户端大约每 2 秒询问一次,超过 6 秒的读数不再显示。和区块通道一样,它们目前还没有自己的版本字节。
 
 ## 6. 服务端配置与命令
 
@@ -242,6 +256,6 @@ allowed = isOp(player) || config.chunk_data_sharing
 ## 10. 尚未实现
 
 - 区块查询的上限可配置(目前尺寸和频率写死在代码里),以及区块通道的版本字节。
-- 真实区块耗时和 MSPT 的通道。
+- 真实区块耗时的通道。
 - 与 `fabric-permissions-api` 的软集成(权限节点 `rtmap.seed`)。
-- 包级别的自动化测试。`chunk_query` / `chunk_data` 在带权限的专用服务端上的交互还没有测试过。
+- 包级别的自动化测试。`chunk_query` / `chunk_data` 和 `mspt_query` / `mspt_data` 在带权限的专用服务端上的交互还没有测试过。
