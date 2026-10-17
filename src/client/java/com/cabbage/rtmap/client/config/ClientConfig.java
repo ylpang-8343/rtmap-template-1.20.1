@@ -43,6 +43,8 @@ public final class ClientConfig {
 
 	/** Minimap edge lengths in GUI pixels. */
 	public static final int[] MINIMAP_SIZES = {64, 96, 128, 160};
+	/** Lengths of a chunk timing run the player can choose, in seconds. */
+	public static final int[] TIMING_SECONDS = {5, 10, 20, 30, 60};
 	/** Minimap zoom steps, in screen pixels per block. */
 	public static final double[] MINIMAP_ZOOMS = {0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0};
 
@@ -56,6 +58,7 @@ public final class ClientConfig {
 	private static boolean minimapRotate = false;
 	private static boolean showCoordinates = true;
 	private static boolean spawnRangeAroundPlayer = false;
+	private static int timingSeconds = 10;
 	/** The radii of the mob spawning rings, in blocks. Only editable in the file. */
 	private static int[] spawnRangeRadii = {24, 128};
 	private static boolean showConvertedCoordinates = true;
@@ -142,6 +145,26 @@ public final class ClientConfig {
 	public static void setSpawnRangeAroundPlayer(boolean value) {
 		spawnRangeAroundPlayer = value;
 		dirty = true;
+	}
+
+	/** How long a chunk timing run lasts, in seconds. One of {@link #TIMING_SECONDS}. */
+	public static int timingSeconds() {
+		return timingSeconds;
+	}
+
+	public static void setTimingSeconds(int value) {
+		timingSeconds = nearestTimingSeconds(value);
+		dirty = true;
+	}
+
+	private static int nearestTimingSeconds(int value) {
+		int best = TIMING_SECONDS[0];
+		for (int option : TIMING_SECONDS) {
+			if (Math.abs(option - value) < Math.abs(best - value)) {
+				best = option;
+			}
+		}
+		return best;
 	}
 
 	public static int[] spawnRangeRadii() {
@@ -268,6 +291,7 @@ public final class ClientConfig {
 			minimapRotate = readBoolean(obj, "minimap_rotate", minimapRotate);
 			showCoordinates = readBoolean(obj, "show_coordinates", showCoordinates);
 			spawnRangeAroundPlayer = readBoolean(obj, "spawn_range_around_player", spawnRangeAroundPlayer);
+			timingSeconds = nearestTimingSeconds(readInt(obj, "timing_seconds", timingSeconds));
 			spawnRangeRadii = readRadii(obj, "spawn_range_radii", spawnRangeRadii);
 			showConvertedCoordinates = readBoolean(obj, "show_converted_coordinates", showConvertedCoordinates);
 			showOtherDimensionWaypoints = readBoolean(obj, "show_other_dimension_waypoints", showOtherDimensionWaypoints);
@@ -310,6 +334,7 @@ public final class ClientConfig {
 		obj.addProperty("minimap_rotate", minimapRotate);
 		obj.addProperty("show_coordinates", showCoordinates);
 		obj.addProperty("spawn_range_around_player", spawnRangeAroundPlayer);
+		obj.addProperty("timing_seconds", timingSeconds);
 		com.google.gson.JsonArray radii = new com.google.gson.JsonArray();
 		for (int radius : spawnRangeRadii) {
 			radii.add(radius);

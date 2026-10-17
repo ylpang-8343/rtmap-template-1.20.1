@@ -8,6 +8,7 @@ import net.minecraft.client.gui.DrawContext;
 /** All map layers, in drawing order (later ones are drawn on top). */
 public final class MapLayers {
 	private static final List<MapLayer> LAYERS = List.of(
+		new ChunkTimingLayer(),
 		new ChunkLoadLayer(),
 		new ChunkStateLayer(),
 		new SlimeChunkLayer(),
@@ -42,6 +43,10 @@ public final class MapLayers {
 
 	public static void setEnabled(MapLayer layer, boolean enabled) {
 		ClientConfig.setLayerEnabled(layer.id(), enabled);
+	}
+
+	public static void setEnabled(String id, boolean enabled) {
+		ClientConfig.setLayerEnabled(id, enabled);
 	}
 
 	public static void renderAll(DrawContext context, LayerView view) {

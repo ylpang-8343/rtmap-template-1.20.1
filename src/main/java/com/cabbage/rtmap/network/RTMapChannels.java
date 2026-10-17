@@ -18,6 +18,9 @@ public final class RTMapChannels {
 	public static final Identifier CHUNK_DATA = RTMap.id("chunk_data");
 	public static final Identifier MSPT_QUERY = RTMap.id("mspt_query");
 	public static final Identifier MSPT_DATA = RTMap.id("mspt_data");
+	public static final Identifier PROFILE_CONTROL = RTMap.id("profile_control");
+	public static final Identifier PROFILE_STATE = RTMap.id("profile_state");
+	public static final Identifier PROFILE_RESULT = RTMap.id("profile_result");
 
 	public static final int PROTOCOL_VERSION = 1;
 	public static final int MIN_PROTOCOL_VERSION = 1;
@@ -29,6 +32,8 @@ public final class RTMapChannels {
 	public static final String FEATURE_CHUNK_LOAD = "chunk_load";
 	/** How long the server's recent ticks took (MSPT). */
 	public static final String FEATURE_MSPT = "mspt";
+	/** Starting a profiling run that measures how much tick time each chunk uses. Ops only. */
+	public static final String FEATURE_CHUNK_TIMING = "chunk_timing";
 
 	/** Bits in the {@code what} byte of a chunk_query. */
 	public static final int QUERY_STATE = 1;
@@ -43,6 +48,22 @@ public final class RTMapChannels {
 	public static final int STATUS_MSPT_OK = 0;
 	public static final int STATUS_MSPT_NOT_AUTHORIZED = 1;
 	public static final int STATUS_MSPT_RATE_LIMITED = 2;
+
+	/** The {@code action} byte of a profile_control. */
+	public static final int PROFILE_ACTION_START = 1;
+	public static final int PROFILE_ACTION_STOP = 2;
+
+	/** The {@code state} byte of a profile_state. */
+	public static final int PROFILE_STATE_IDLE = 0;
+	public static final int PROFILE_STATE_RUNNING = 1;
+	public static final int PROFILE_STATE_DENIED = 2;
+
+	/** Why a start was refused. */
+	public static final int PROFILE_REASON_NOT_AUTHORIZED = 1;
+	public static final int PROFILE_REASON_BUSY = 2;
+	public static final int PROFILE_REASON_DISABLED = 3;
+	public static final int PROFILE_REASON_RATE_LIMITED = 4;
+	public static final int PROFILE_REASON_BAD_REQUEST = 5;
 
 	/** A query asks for at most this many chunks along each side, and this many in total. */
 	public static final int MAX_QUERY_SIDE = 256;

@@ -114,6 +114,10 @@ public final class MapSettingsScreen extends Screen {
 			add(Category.LAYERS, key, w -> CyclingButtonWidget.onOffBuilder(MapLayers.isEnabled(layer))
 				.build(0, 0, w, HEIGHT, Text.translatable(key), (button, value) -> MapLayers.setEnabled(layer, value)));
 		}
+		add(Category.LAYERS, "option.rtmap.timing_seconds", w -> CyclingButtonWidget.<Integer>builder(seconds -> Text.literal(seconds + " s"))
+			.values(java.util.Arrays.stream(ClientConfig.TIMING_SECONDS).boxed().toList())
+			.initially(ClientConfig.timingSeconds())
+			.build(0, 0, w, HEIGHT, Text.translatable("option.rtmap.timing_seconds"), (button, value) -> ClientConfig.setTimingSeconds(value)));
 		add(Category.LAYERS, "option.rtmap.spawn_range_around_me", w -> CyclingButtonWidget.onOffBuilder(ClientConfig.spawnRangeAroundPlayer())
 			.build(0, 0, w, HEIGHT, Text.translatable("option.rtmap.spawn_range_around_me"),
 				(button, value) -> ClientConfig.setSpawnRangeAroundPlayer(value)));

@@ -22,7 +22,8 @@ import net.minecraft.text.Text;
  */
 public final class ClientNetworking {
 	private static final List<String> CLIENT_FEATURES = List.of(
-		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD, RTMapChannels.FEATURE_MSPT);
+		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD, RTMapChannels.FEATURE_MSPT,
+		RTMapChannels.FEATURE_CHUNK_TIMING);
 
 	private record ServerHello(int status, int protocol, UUID worldId, Set<String> features, Set<String> grants) {
 	}

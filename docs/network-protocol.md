@@ -27,8 +27,11 @@ English version: [network-protocol.en.md](network-protocol.en.md)
 | `rtmap:chunk_data` | S2C | 返回这些数据或拒绝原因 |
 | `rtmap:mspt_query` | C2S | 询问服务端最近的 tick 耗时 |
 | `rtmap:mspt_data` | S2C | 返回最近 100 个 tick 的平均值和最大值,或拒绝原因 |
+| `rtmap:profile_control` | C2S | OP 请求开始或停止一次区块耗时分析 |
+| `rtmap:profile_state` | S2C | 说明分析正在进行、已结束还是被拒绝 |
+| `rtmap:profile_result` | S2C | 每个区块测到的耗时,分析结束时发送 |
 
-目前的功能 ID:`seed`、`chunk_state`、`chunk_load`、`mspt`。后续功能(真实区块耗时等)各自新增通道,并在 `features` 中声明。
+目前的功能 ID:`seed`、`chunk_state`、`chunk_load`、`mspt`、`chunk_timing`。后续功能(真实区块耗时等)各自新增通道,并在 `features` 中声明。
 
 ## 3. 握手流程
 
@@ -185,6 +188,57 @@ allowed = isOp(player) || config.chunk_data_sharing
 
 两个数字都来自游戏自己记录的近期 tick 时长(`MinecraftServer.lastTickLengths`),RTMap 不做任何测量。限频是每位玩家 5 秒内最多 10 次查询,写死在代码里。全屏地图打开时客户端大约每 2 秒询问一次,超过 6 秒的读数不再显示。和区块通道一样,它们目前还没有自己的版本字节。
 
+### 5.5 区块耗时:`profile_control`、`profile_state`、`profile_result`(功能 `chunk_timing`)
+
+一次分析会测量每个区块占用了多少服务端 tick 时间。授权规则:
+
+```
+allowed = isOp(player) && config.chunk_profiling
+```
+
+没有共享开关:启动分析只有 OP 可以。单人游戏里世界的主人总是可以启动,而且不使用任何包。一个服务端同一时间只能有一次分析在进行;每位玩家 60 秒内最多启动 6 次(写死在代码里);一次分析持续 5 到 60 秒。只有启动者可以停止,也只有启动者会收到结果。
+
+`profile_control`(C2S):
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| action | Byte | 1 = 开始,2 = 停止 |
+| seconds | VarInt | 分析时长,5 到 60;停止时忽略 |
+
+`profile_state`(S2C):
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| state | Byte | 0 = 空闲,1 = 进行中,2 = 被拒绝 |
+| reason | Byte | 被拒绝时:1 = 未授权,2 = 已有一次分析在进行,3 = 配置里已关闭,4 = 请求过于频繁,5 = 请求不合法;其他情况为 0 |
+| seconds | VarInt | `state = 1` 时是这次分析的时长 |
+
+`profile_result`(S2C),分析结束或被停止时发送,之后跟一个 `state = 0` 的 `profile_state`:
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| ticks | VarInt | 测量的服务端 tick 数 |
+| tick_micros | VarLong | 这些 tick 里服务端自己的耗时,单位微秒 |
+| dimensions | VarInt | 最多 8 个,之后对每个维度: |
+| id | String | 维度 ID |
+| totals | 6 x VarLong | 整个分析期间该维度所有区块按种类的合计,单位微秒 |
+| entries | VarInt | 最多 2048 个,最耗时的区块在前,之后对每个区块: |
+| chunk_x, chunk_z | Int, Int | 区块坐标 |
+| micros | 6 x VarInt | 整个分析期间按种类的耗时,单位微秒 |
+
+六种类按顺序是:实体、方块实体、计划刻(方块和流体)、随机刻、刷怪、方块事件。
+
+计时的位置:`ServerWorld.tickEntity`、方块实体的 ticker(`WorldChunk.DirectBlockEntityTickInvoker.tick`)、`ServerWorld.tickChunk`、`ServerWorld.tickBlock`、`ServerWorld.tickFluid`、`ServerWorld.processBlockEvent` 和 `SpawnHelper.spawn`。它们都是在方法开头和结尾的普通注入。每段时间记在实体或方块所在的区块上,一次调用发生在另一次里面时,里面那段会从外面扣掉。只给服务端线程计时。
+
+服务端处理要求:
+
+1. 分析从某个服务端 tick 的开头开始、到某个 tick 的结尾结束,所以一次计时的调用不会碰到分析在它中间开始或结束。
+2. 没有分析在进行时,每个挂钩只多一次 volatile 读取。
+3. 开始之前先校验全部条件:action、时长、权限、配置开关、限频,以及没有别的分析在进行。
+4. 不在测量范围内:光照、区块加载与生成、网络处理、实体追踪、天气、袭击、命令函数。
+
+客户端接受最大 1 MiB 的 `profile_result`。和其他新通道一样,它们目前还没有自己的版本字节。
+
 ## 6. 服务端配置与命令
 
 `config/rtmap-server.json`:
@@ -193,6 +247,7 @@ allowed = isOp(player) || config.chunk_data_sharing
 {
   "seed_sharing": false,
   "chunk_data_sharing": false,
+  "chunk_profiling": true,
   "command_permission_level": 3,
   "seed_request_limit": 3,
   "seed_request_window_seconds": 30
@@ -203,6 +258,7 @@ allowed = isOp(player) || config.chunk_data_sharing
 |---|---|---|
 | `seed_sharing` | `false` | 布尔值 |
 | `chunk_data_sharing` | `false` | 布尔值 |
+| `chunk_profiling` | `true` | 布尔值;是否允许 OP 启动区块耗时分析 |
 | `command_permission_level` | 3 | 2 到 4 |
 | `seed_request_limit` | 3 | 1 到 60 |
 | `seed_request_window_seconds` | 30 | 10 到 3600 |
@@ -215,6 +271,8 @@ allowed = isOp(player) || config.chunk_data_sharing
 | `/rtmap seed_sharing <true\|false>` | 修改并保存开关,同时向在线玩家发送 `permissions` |
 | `/rtmap chunk_data_sharing` | 显示当前值 |
 | `/rtmap chunk_data_sharing <true\|false>` | 修改并保存开关,同时向在线玩家发送 `permissions` |
+| `/rtmap chunk_profiling` | 显示当前值 |
+| `/rtmap chunk_profiling <true\|false>` | 修改并保存开关,同时向在线玩家发送 `permissions` |
 | `/rtmap reload` | 重载配置文件,发送 `permissions`,并刷新玩家的命令树 |
 
 ### 防篡改
@@ -256,6 +314,5 @@ allowed = isOp(player) || config.chunk_data_sharing
 ## 10. 尚未实现
 
 - 区块查询的上限可配置(目前尺寸和频率写死在代码里),以及区块通道的版本字节。
-- 真实区块耗时的通道。
 - 与 `fabric-permissions-api` 的软集成(权限节点 `rtmap.seed`)。
-- 包级别的自动化测试。`chunk_query` / `chunk_data` 和 `mspt_query` / `mspt_data` 在带权限的专用服务端上的交互还没有测试过。
+- 包级别的自动化测试。`chunk_query` / `chunk_data`、`mspt_query` / `mspt_data` 和 `profile_*` 在带权限的专用服务端上的交互还没有测试过。

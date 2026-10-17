@@ -27,8 +27,11 @@ Namespace: `rtmap`.
 | `rtmap:chunk_data` | S2C | Returns that data, or a rejection reason |
 | `rtmap:mspt_query` | C2S | Asks for the server's recent tick time |
 | `rtmap:mspt_data` | S2C | Returns the average and the worst of the last 100 ticks, or a rejection reason |
+| `rtmap:profile_control` | C2S | An op asks to start or stop a chunk timing run |
+| `rtmap:profile_state` | S2C | Says whether the run is going, finished or refused |
+| `rtmap:profile_result` | S2C | The measured time per chunk, sent when the run ends |
 
-Feature ids so far: `seed`, `chunk_state`, `chunk_load`, `mspt`. Later features (real chunk timing, etc.) each get their own channel and are declared in `features`.
+Feature ids so far: `seed`, `chunk_state`, `chunk_load`, `mspt`, `chunk_timing`. Later features (real chunk timing, etc.) each get their own channel and are declared in `features`.
 
 ## 3. Handshake
 
@@ -185,6 +188,57 @@ The same authorization rule as 5.1 (ops always, everyone else only with `chunk_d
 
 Both numbers come from the game's own record of recent tick lengths (`MinecraftServer.lastTickLengths`); RTMap measures nothing. The rate limit is 10 queries per 5 seconds per player, fixed in the code. The client asks about every 2 seconds while the full-screen map is open and stops showing a reading older than 6 seconds. Like the chunk channels, these carry no version byte of their own yet.
 
+### 5.5 Chunk timing: `profile_control`, `profile_state`, `profile_result` (feature `chunk_timing`)
+
+A profiling run measures how much of the server's tick time each chunk uses. Authorization:
+
+```
+allowed = isOp(player) && config.chunk_profiling
+```
+
+There is no sharing switch: starting a run is for ops only. In singleplayer the owner of the world can always start one and no packet is used. Only one run can go at a time on a server, a player can start at most 6 runs per 60 seconds (fixed in the code), and a run lasts 5 to 60 seconds. Only the player who started a run can stop it, and only that player gets its result.
+
+`profile_control` (C2S):
+
+| Field | Type | Description |
+|---|---|---|
+| action | Byte | 1 = start, 2 = stop |
+| seconds | VarInt | Length of the run, 5 to 60. Ignored for stop |
+
+`profile_state` (S2C):
+
+| Field | Type | Description |
+|---|---|---|
+| state | Byte | 0 = idle, 1 = running, 2 = denied |
+| reason | Byte | When denied: 1 = not authorized, 2 = a run is already going, 3 = switched off in the config, 4 = rate limited, 5 = bad request; otherwise 0 |
+| seconds | VarInt | The length of the run when `state = 1` |
+
+`profile_result` (S2C), sent when the run ends or is stopped, followed by a `profile_state` with `state = 0`:
+
+| Field | Type | Description |
+|---|---|---|
+| ticks | VarInt | Server ticks measured |
+| tick_micros | VarLong | The server's own time for those ticks, in microseconds |
+| dimensions | VarInt | At most 8, then for each one: |
+| id | String | Dimension id |
+| totals | 6 x VarLong | Microseconds over the whole run in every chunk of the dimension, per kind |
+| entries | VarInt | At most 2048, the most expensive chunks first, then for each one: |
+| chunk_x, chunk_z | Int, Int | The chunk |
+| micros | 6 x VarInt | Microseconds over the whole run, per kind |
+
+The six kinds, in order: entities, block entities, scheduled ticks (blocks and fluids), random ticks, mob spawning, block events.
+
+What is timed: `ServerWorld.tickEntity`, the block entity ticker (`WorldChunk.DirectBlockEntityTickInvoker.tick`), `ServerWorld.tickChunk`, `ServerWorld.tickBlock`, `ServerWorld.tickFluid`, `ServerWorld.processBlockEvent` and `SpawnHelper.spawn`. These are plain injections at the start and end of each method. Each time is charged to the chunk where the entity or block is, and a call inside another call is taken off the outer one. Only the server thread is timed.
+
+Server requirements:
+
+1. A run starts at the beginning of a server tick and ends at the end of one, so a timed call never sees a run begin or end half way through it.
+2. When no run is going, each hook costs one volatile read.
+3. Validate everything before starting: action, length, permission, the config switch, the rate limit, and that no other run is going.
+4. Not measured: lighting, chunk loading and generation, network handling, entity tracking, weather, raids, command functions.
+
+The client accepts a `profile_result` of up to 1 MiB. Like the other new channels, these carry no version byte of their own yet.
+
 ## 6. Server config and commands
 
 `config/rtmap-server.json`:
@@ -193,6 +247,7 @@ Both numbers come from the game's own record of recent tick lengths (`MinecraftS
 {
   "seed_sharing": false,
   "chunk_data_sharing": false,
+  "chunk_profiling": true,
   "command_permission_level": 3,
   "seed_request_limit": 3,
   "seed_request_window_seconds": 30
@@ -203,6 +258,7 @@ Both numbers come from the game's own record of recent tick lengths (`MinecraftS
 |---|---|---|
 | `seed_sharing` | `false` | boolean |
 | `chunk_data_sharing` | `false` | boolean |
+| `chunk_profiling` | `true` | boolean; whether ops may start a chunk timing run |
 | `command_permission_level` | 3 | 2 to 4 |
 | `seed_request_limit` | 3 | 1 to 60 |
 | `seed_request_window_seconds` | 30 | 10 to 3600 |
@@ -215,6 +271,8 @@ Commands (the required permission level is `command_permission_level`):
 | `/rtmap seed_sharing <true\|false>` | Changes and saves the switch, and sends `permissions` to online players |
 | `/rtmap chunk_data_sharing` | Shows the current value |
 | `/rtmap chunk_data_sharing <true\|false>` | Changes and saves the switch, and sends `permissions` to online players |
+| `/rtmap chunk_profiling` | Shows the current value |
+| `/rtmap chunk_profiling <true\|false>` | Changes and saves the switch, and sends `permissions` to online players |
 | `/rtmap reload` | Reloads the config file, sends `permissions`, and refreshes players' command trees |
 
 ### Tamper resistance
@@ -256,6 +314,5 @@ To add a feature (e.g. `mspt`):
 ## 10. Not implemented yet
 
 - Configurable chunk query limits (size and rate are fixed in the code), and a version byte for the chunk channels.
-- A channel for real per-chunk timing.
 - Soft integration with `fabric-permissions-api` (node `rtmap.seed`).
-- Packet-level automated tests. The `chunk_query` / `chunk_data` and `mspt_query` / `mspt_data` exchanges on a dedicated server with permissions have not been tested yet.
+- Packet-level automated tests. The `chunk_query` / `chunk_data`, `mspt_query` / `mspt_data` and `profile_*` exchanges on a dedicated server with permissions have not been tested yet.

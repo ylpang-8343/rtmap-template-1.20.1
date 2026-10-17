@@ -8,7 +8,7 @@ import net.minecraft.client.gui.DrawContext;
  */
 public enum Icon {
 	HEAT, STATE, SLIME, SPAWN, PORTAL, WAYPOINT, LIST, RULER, RECTANGLE, CIRCLE, CLEAR, SETTINGS, CENTER, ZOOM_IN, ZOOM_OUT,
-	LAYER;
+	LAYER, TIMING, RECORD;
 
 	public static final int SIZE = 16;
 
@@ -22,6 +22,7 @@ public enum Icon {
 			case "portals" -> PORTAL;
 			case "waypoints" -> WAYPOINT;
 			case "measure" -> RULER;
+			case "chunk_timing" -> TIMING;
 			default -> LAYER;
 		};
 	}
@@ -118,6 +119,16 @@ public enum Icon {
 				box(c, x + 7, y + 3, 2, 10, shade(0xE0E0E8, on));
 			}
 			case ZOOM_OUT -> box(c, x + 3, y + 7, 10, 2, shade(0xE0E0E8, on));
+			case TIMING -> {
+				circle(c, x + 8, y + 9, 6, shade(0xFFD27F, on));
+				box(c, x + 6, y + 1, 4, 2, shade(0xFFD27F, on));
+				box(c, x + 7, y + 5, 2, 5, shade(0xFFFFFF, on));
+				box(c, x + 8, y + 9, 3, 1, shade(0xFF6060, on));
+			}
+			case RECORD -> {
+				circle(c, x + 8, y + 8, 7, shade(0xB0B0B8, on));
+				fillCircle(c, x + 8, y + 8, 4, shade(0xFF5050, on));
+			}
 			case LAYER -> {
 				box(c, x + 2, y + 9, 12, 3, shade(0x8090B0, on));
 				box(c, x + 2, y + 5, 12, 3, shade(0xA0B0D0, on));

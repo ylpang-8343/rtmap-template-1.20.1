@@ -8,6 +8,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.cabbage.rtmap.RTMap;
+import com.cabbage.rtmap.chunk.ChunkTimingResult;
 import com.cabbage.rtmap.config.ServerConfig;
 import com.cabbage.rtmap.network.RTMapChannels;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
@@ -59,12 +60,17 @@ public final class ServerNetworking {
 	}
 
 	private static final Set<String> SERVER_FEATURES = Set.of(
-		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD, RTMapChannels.FEATURE_MSPT);
+		RTMapChannels.FEATURE_SEED, RTMapChannels.FEATURE_CHUNK_STATE, RTMapChannels.FEATURE_CHUNK_LOAD, RTMapChannels.FEATURE_MSPT,
+		RTMapChannels.FEATURE_CHUNK_TIMING);
 	private static final Map<UUID, Session> SESSIONS = new ConcurrentHashMap<>();
 
 	private static final RateLimiter SEED_LIMITER = new RateLimiter();
 	private static final RateLimiter CHUNK_LIMITER = new RateLimiter();
 	private static final RateLimiter MSPT_LIMITER = new RateLimiter();
+	private static final RateLimiter PROFILE_LIMITER = new RateLimiter();
+	/** Starting a run is rare, so this is much stricter than the query limit. */
+	private static final int PROFILE_START_LIMIT = 6;
+	private static final int PROFILE_START_WINDOW_SECONDS = 60;
 	/** A map that refreshes every second or two stays well under this; a flood of queries does not. */
 	private static final int CHUNK_QUERY_LIMIT = 10;
 	private static final int CHUNK_QUERY_WINDOW_SECONDS = 5;
@@ -96,12 +102,26 @@ public final class ServerNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(RTMapChannels.MSPT_QUERY, (server, player, handler, buf, sender) ->
 			server.execute(() -> onMsptQuery(server, player)));
 
+		ServerPlayNetworking.registerGlobalReceiver(RTMapChannels.PROFILE_CONTROL, (server, player, handler, buf, sender) -> {
+			if (buf.readableBytes() > 64) {
+				return;
+			}
+			try {
+				int action = buf.readUnsignedByte();
+				int seconds = buf.readVarInt();
+				server.execute(() -> onProfileControl(server, player, action, seconds));
+			} catch (RuntimeException e) {
+				RTMap.LOGGER.warn("Malformed profile_control from {}", player.getGameProfile().getName(), e);
+			}
+		});
+
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			UUID id = handler.getPlayer().getUuid();
 			SESSIONS.remove(id);
 			SEED_LIMITER.forget(id);
 			CHUNK_LIMITER.forget(id);
 			MSPT_LIMITER.forget(id);
+			PROFILE_LIMITER.forget(id);
 		});
 	}
 
@@ -157,6 +177,9 @@ public final class ServerNetworking {
 				grants.add(RTMapChannels.FEATURE_MSPT);
 			}
 		}
+		if (features.contains(RTMapChannels.FEATURE_CHUNK_TIMING) && ChunkDataAccess.canProfile(player)) {
+			grants.add(RTMapChannels.FEATURE_CHUNK_TIMING);
+		}
 		return grants;
 	}
 
@@ -174,6 +197,58 @@ public final class ServerNetworking {
 				query.width(), query.height(), query.what()).write(out);
 		}
 		ServerPlayNetworking.send(player, RTMapChannels.CHUNK_DATA, out);
+	}
+
+	private static void onProfileControl(MinecraftServer server, ServerPlayerEntity player, int action, int seconds) {
+		Session session = SESSIONS.get(player.getUuid());
+		if (session == null) {
+			return; // never handshaken; stay silent
+		}
+		if (action == RTMapChannels.PROFILE_ACTION_STOP) {
+			ChunkProfiler.stop(player.getUuid()); // only the player who started a run can stop it
+			return;
+		}
+
+		int reason = 0;
+		if (action != RTMapChannels.PROFILE_ACTION_START || seconds < ChunkProfiler.MIN_SECONDS || seconds > ChunkProfiler.MAX_SECONDS) {
+			reason = RTMapChannels.PROFILE_REASON_BAD_REQUEST;
+		} else if (!session.features().contains(RTMapChannels.FEATURE_CHUNK_TIMING) || !player.hasPermissionLevel(2)) {
+			reason = RTMapChannels.PROFILE_REASON_NOT_AUTHORIZED;
+		} else if (!ServerConfig.get().chunkProfiling()) {
+			reason = RTMapChannels.PROFILE_REASON_DISABLED;
+		} else if (!PROFILE_LIMITER.tryAcquire(player.getUuid(), PROFILE_START_LIMIT, PROFILE_START_WINDOW_SECONDS)) {
+			reason = RTMapChannels.PROFILE_REASON_RATE_LIMITED;
+		} else {
+			UUID id = player.getUuid();
+			if (ChunkProfiler.start(id, seconds, result -> deliverProfileResult(server, id, result)) == ChunkProfiler.Outcome.BUSY) {
+				reason = RTMapChannels.PROFILE_REASON_BUSY;
+			}
+		}
+
+		if (reason == 0) {
+			RTMap.LOGGER.info("{} started a {} second chunk timing run", player.getGameProfile().getName(), seconds);
+		}
+		sendProfileState(player, reason == 0 ? RTMapChannels.PROFILE_STATE_RUNNING : RTMapChannels.PROFILE_STATE_DENIED, reason, seconds);
+	}
+
+	/** Called on the server thread when a run ends. The player may have left in the meantime. */
+	private static void deliverProfileResult(MinecraftServer server, UUID id, ChunkTimingResult result) {
+		ServerPlayerEntity player = server.getPlayerManager().getPlayer(id);
+		if (player == null || !SESSIONS.containsKey(id)) {
+			return;
+		}
+		PacketByteBuf out = PacketByteBufs.create();
+		result.write(out);
+		ServerPlayNetworking.send(player, RTMapChannels.PROFILE_RESULT, out);
+		sendProfileState(player, RTMapChannels.PROFILE_STATE_IDLE, 0, 0);
+	}
+
+	private static void sendProfileState(ServerPlayerEntity player, int state, int reason, int seconds) {
+		PacketByteBuf out = PacketByteBufs.create();
+		out.writeByte(state);
+		out.writeByte(reason);
+		out.writeVarInt(seconds);
+		ServerPlayNetworking.send(player, RTMapChannels.PROFILE_STATE, out);
 	}
 
 	private static void onMsptQuery(MinecraftServer server, ServerPlayerEntity player) {

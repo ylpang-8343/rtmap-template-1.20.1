@@ -33,20 +33,22 @@ public final class ServerConfig {
 	public static final int MAX_WINDOW_SECONDS = 3600;
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-	private static final ServerConfig DEFAULTS = new ServerConfig(false, false, 3, 3, 30);
+	private static final ServerConfig DEFAULTS = new ServerConfig(false, false, true, 3, 3, 30);
 
 	private static volatile ServerConfig current = DEFAULTS;
 
 	private final boolean seedSharing;
 	private final boolean chunkDataSharing;
+	private final boolean chunkProfiling;
 	private final int commandPermissionLevel;
 	private final int seedRequestLimit;
 	private final int seedRequestWindowSeconds;
 
-	private ServerConfig(boolean seedSharing, boolean chunkDataSharing, int commandPermissionLevel, int seedRequestLimit,
-		int seedRequestWindowSeconds) {
+	private ServerConfig(boolean seedSharing, boolean chunkDataSharing, boolean chunkProfiling, int commandPermissionLevel,
+		int seedRequestLimit, int seedRequestWindowSeconds) {
 		this.seedSharing = seedSharing;
 		this.chunkDataSharing = chunkDataSharing;
+		this.chunkProfiling = chunkProfiling;
 		this.commandPermissionLevel = commandPermissionLevel;
 		this.seedRequestLimit = seedRequestLimit;
 		this.seedRequestWindowSeconds = seedRequestWindowSeconds;
@@ -77,12 +79,21 @@ public final class ServerConfig {
 		return seedRequestWindowSeconds;
 	}
 
+	/** Whether ops may start a chunk timing run, which costs the server a little time while it runs. */
+	public boolean chunkProfiling() {
+		return chunkProfiling;
+	}
+
 	public ServerConfig withSeedSharing(boolean enabled) {
-		return new ServerConfig(enabled, chunkDataSharing, commandPermissionLevel, seedRequestLimit, seedRequestWindowSeconds);
+		return new ServerConfig(enabled, chunkDataSharing, chunkProfiling, commandPermissionLevel, seedRequestLimit, seedRequestWindowSeconds);
 	}
 
 	public ServerConfig withChunkDataSharing(boolean enabled) {
-		return new ServerConfig(seedSharing, enabled, commandPermissionLevel, seedRequestLimit, seedRequestWindowSeconds);
+		return new ServerConfig(seedSharing, enabled, chunkProfiling, commandPermissionLevel, seedRequestLimit, seedRequestWindowSeconds);
+	}
+
+	public ServerConfig withChunkProfiling(boolean enabled) {
+		return new ServerConfig(seedSharing, chunkDataSharing, enabled, commandPermissionLevel, seedRequestLimit, seedRequestWindowSeconds);
 	}
 
 	private static Path path() {
@@ -110,6 +121,7 @@ public final class ServerConfig {
 			current = new ServerConfig(
 				readBoolean(obj, "seed_sharing", DEFAULTS.seedSharing),
 				readBoolean(obj, "chunk_data_sharing", DEFAULTS.chunkDataSharing),
+				readBoolean(obj, "chunk_profiling", DEFAULTS.chunkProfiling),
 				readInt(obj, "command_permission_level", DEFAULTS.commandPermissionLevel, MIN_COMMAND_LEVEL, MAX_COMMAND_LEVEL),
 				readInt(obj, "seed_request_limit", DEFAULTS.seedRequestLimit, MIN_REQUEST_LIMIT, MAX_REQUEST_LIMIT),
 				readInt(obj, "seed_request_window_seconds", DEFAULTS.seedRequestWindowSeconds, MIN_WINDOW_SECONDS, MAX_WINDOW_SECONDS)
@@ -133,6 +145,7 @@ public final class ServerConfig {
 		JsonObject obj = new JsonObject();
 		obj.addProperty("seed_sharing", config.seedSharing);
 		obj.addProperty("chunk_data_sharing", config.chunkDataSharing);
+		obj.addProperty("chunk_profiling", config.chunkProfiling);
 		obj.addProperty("command_permission_level", config.commandPermissionLevel);
 		obj.addProperty("seed_request_limit", config.seedRequestLimit);
 		obj.addProperty("seed_request_window_seconds", config.seedRequestWindowSeconds);

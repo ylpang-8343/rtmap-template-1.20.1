@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 
 import com.cabbage.rtmap.chunk.ChunkSnapshot;
+import com.cabbage.rtmap.chunk.ChunkTimingResult;
 import com.cabbage.rtmap.client.chunk.ChunkDataClient;
 import com.cabbage.rtmap.client.chunk.ChunkInfo;
 import com.cabbage.rtmap.client.config.ClientConfig;
@@ -15,7 +16,9 @@ import com.cabbage.rtmap.client.map.layer.MapLayers;
 import com.cabbage.rtmap.client.map.layer.PortalLayer;
 import com.cabbage.rtmap.client.measure.MeasureTool;
 import com.cabbage.rtmap.client.network.ClientSession;
+import com.cabbage.rtmap.client.perf.ChunkTimingClient;
 import com.cabbage.rtmap.client.perf.ServerPerformanceClient;
+import com.cabbage.rtmap.client.perf.TimingPanel;
 import com.cabbage.rtmap.client.portal.Portal;
 import com.cabbage.rtmap.client.portal.PortalStore;
 import com.cabbage.rtmap.client.ui.ContextMenu;
@@ -84,6 +87,7 @@ public final class FullscreenMapScreen extends Screen {
 	private double dragDistance;
 
 	private final ContextMenu menu = new ContextMenu();
+	private final TimingPanel timingPanel = new TimingPanel();
 	private final List<int[]> separators = new ArrayList<>();
 	private int toolbarHeight = BUTTON + 2 * BAR_PADDING;
 	private IconButton clearButton;
@@ -122,6 +126,13 @@ public final class FullscreenMapScreen extends Screen {
 		clearButton = IconButton.action(0, 0, BUTTON, Icon.CLEAR, Text.translatable("measure.rtmap.clear"),
 			pressed -> MeasureTool.clear());
 		left.add(clearButton);
+
+		// Chunk timing is a run you start yourself, so its button only exists where the server lets you.
+		if (ChunkTimingClient.available()) {
+			left.add(null);
+			left.add(new IconButton(0, 0, BUTTON, () -> Icon.RECORD, FullscreenMapScreen::timingLabel,
+				ChunkTimingClient::running, pressed -> ChunkTimingClient.toggle(ClientConfig.timingSeconds())));
+		}
 
 		// Right side: zoom, back to the player, then the two screens.
 		List<ClickableWidget> right = new ArrayList<>();
@@ -211,6 +222,12 @@ public final class FullscreenMapScreen extends Screen {
 		};
 	}
 
+	private static Text timingLabel() {
+		return ChunkTimingClient.running()
+			? Text.translatable("timing.rtmap.stop", ChunkTimingClient.secondsLeft())
+			: Text.translatable("timing.rtmap.start", ClientConfig.timingSeconds());
+	}
+
 	private static Text measureLabel() {
 		return Text.translatable("measure.rtmap.tool").append(": ")
 			.append(Text.translatable("measure.rtmap.mode." + MeasureTool.mode().name().toLowerCase(Locale.ROOT)));
@@ -262,6 +279,7 @@ public final class FullscreenMapScreen extends Screen {
 		drawToolbar(context);
 		super.render(context, mouseX, mouseY, delta);
 		drawStatusLine(context, player, mouseX, mouseY);
+		drawTimingPanel(context, mouseX, mouseY);
 		drawMeasurement(context);
 		drawMessages(context, world);
 
@@ -270,6 +288,18 @@ public final class FullscreenMapScreen extends Screen {
 		} else if (!overBar(mouseX, mouseY) && !drawPortalTooltip(context, mouseX, mouseY)) {
 			drawChunkTooltip(context, mouseX, mouseY);
 		}
+	}
+
+	/** The summary and the list of expensive chunks from the last timing run, while its layer is on. */
+	private void drawTimingPanel(DrawContext context, int mouseX, int mouseY) {
+		ChunkTimingResult result = ChunkTimingClient.result();
+		if (result == null || client.world == null || !ChunkTimingClient.available()
+			|| !MapLayers.isEnabled(ChunkTimingClient.LAYER_ID)) {
+			timingPanel.hide();
+			return;
+		}
+		timingPanel.render(context, textRenderer, width, toolbarHeight + 4, mouseX, mouseY, result,
+			Waypoints.dimensionId(client.world));
 	}
 
 	private void drawToolbar(DrawContext context) {
@@ -383,6 +413,14 @@ public final class FullscreenMapScreen extends Screen {
 			colors[count++] = 0xFFFF8080;
 			messages.add(Text.translatable("screen.rtmap.map.no_seed"));
 		}
+		if (ChunkTimingClient.running()) {
+			colors[count++] = 0xFFFFD27F;
+			messages.add(Text.translatable("timing.rtmap.running", ChunkTimingClient.secondsLeft()));
+		}
+		if (ChunkTimingClient.problem() != 0) {
+			colors[count++] = 0xFFFF8080;
+			messages.add(Text.translatable("timing.rtmap.problem." + ChunkTimingClient.problem()));
+		}
 		// The chunk layers draw nothing when zoomed far out, or when the server said no; tell the player which.
 		boolean chunkLayerOn = MapLayers.isEnabled("chunk_state") || MapLayers.isEnabled("chunk_load");
 		if (chunkLayerOn && ChunkDataClient.denied()) {
@@ -406,7 +444,9 @@ public final class FullscreenMapScreen extends Screen {
 
 	/** Loading level, tickets and counts for the chunk under the cursor, when a chunk layer is on. */
 	private void drawChunkTooltip(DrawContext context, int mouseX, int mouseY) {
-		if (!MapLayers.isEnabled("chunk_state") && !MapLayers.isEnabled("chunk_load")) {
+		boolean dataOn = MapLayers.isEnabled("chunk_state") || MapLayers.isEnabled("chunk_load");
+		ChunkTimingResult timing = MapLayers.isEnabled(ChunkTimingClient.LAYER_ID) ? ChunkTimingClient.result() : null;
+		if ((!dataOn && timing == null) || timingPanel.contains(mouseX, mouseY)) {
 			return;
 		}
 		for (Element child : children()) {
@@ -414,12 +454,23 @@ public final class FullscreenMapScreen extends Screen {
 				return;
 			}
 		}
-		ChunkSnapshot snapshot = ChunkDataClient.snapshot();
-		if (snapshot == null) {
-			return;
+
+		int chunkX = MathHelper.floor(worldX(mouseX)) >> 4;
+		int chunkZ = MathHelper.floor(worldZ(mouseY)) >> 4;
+		List<Text> lines = new ArrayList<>();
+		ChunkSnapshot snapshot = dataOn ? ChunkDataClient.snapshot() : null;
+		if (snapshot != null) {
+			lines.addAll(ChunkInfo.lines(snapshot, chunkX, chunkZ));
 		}
-		List<Text> lines = ChunkInfo.lines(snapshot,
-			MathHelper.floor(worldX(mouseX)) >> 4, MathHelper.floor(worldZ(mouseY)) >> 4);
+		if (timing != null && client.world != null) {
+			List<Text> cost = ChunkInfo.timingLines(timing, Waypoints.dimensionId(client.world), chunkX, chunkZ);
+			if (!cost.isEmpty()) {
+				if (lines.isEmpty()) {
+					lines.add(Text.translatable("chunk.rtmap.title", chunkX, chunkZ).formatted(Formatting.WHITE));
+				}
+				lines.addAll(cost);
+			}
+		}
 		if (!lines.isEmpty()) {
 			context.drawTooltip(textRenderer, lines, mouseX, mouseY);
 		}
@@ -536,6 +587,16 @@ public final class FullscreenMapScreen extends Screen {
 		}
 		if (super.mouseClicked(mouseX, mouseY, button)) {
 			return true; // a button took it
+		}
+		// A row of the timing panel centres the map on that chunk; the rest of the panel is not the map either.
+		int[] listed = timingPanel.clickedChunk(mouseX, mouseY);
+		if (listed != null) {
+			cameraX = listed[0] * 16.0 + 8;
+			cameraZ = listed[1] * 16.0 + 8;
+			return true;
+		}
+		if (timingPanel.contains(mouseX, mouseY)) {
+			return true;
 		}
 		if (overBar(mouseX, mouseY)) {
 			return true; // the empty part of a bar is not the map

@@ -2,6 +2,7 @@ package com.cabbage.rtmap;
 
 import com.cabbage.rtmap.config.ServerConfig;
 import com.cabbage.rtmap.server.RTMapCommand;
+import com.cabbage.rtmap.server.ChunkProfiler;
 import com.cabbage.rtmap.server.ServerNetworking;
 import net.fabricmc.api.ModInitializer;
 
@@ -22,6 +23,7 @@ public class RTMap implements ModInitializer {
 	public void onInitialize() {
 		ServerConfig.load();
 		ServerNetworking.init();
+		ChunkProfiler.init();
 		RTMapCommand.init();
 	}
 

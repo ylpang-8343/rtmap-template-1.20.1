@@ -3,8 +3,11 @@
 	"package": "com.cabbage.rtmap.mixin",
 	"compatibilityLevel": "JAVA_17",
 	"mixins": [
+		"BlockEntityTickInvokerTimingMixin",
 		"ChunkTicketManagerAccessor",
 		"PlayerManagerMixin",
+		"ServerWorldTimingMixin",
+		"SpawnHelperTimingMixin",
 		"ThreadedAnvilChunkStorageAccessor"
 	],
 	"injectors": {

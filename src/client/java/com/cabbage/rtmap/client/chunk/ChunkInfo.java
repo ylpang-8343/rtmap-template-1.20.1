@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Locale;
 
 import com.cabbage.rtmap.chunk.ChunkSnapshot;
+import com.cabbage.rtmap.chunk.ChunkTimingResult;
+import com.cabbage.rtmap.client.perf.TimingPanel;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
@@ -54,6 +56,36 @@ public final class ChunkInfo {
 				lines.add(Text.translatable("chunk.rtmap.score",
 					String.format(Locale.ROOT, "%.1f", ChunkLoadScore.of(snapshot, chunkX, chunkZ))).formatted(Formatting.GRAY));
 			}
+		}
+		return lines;
+	}
+
+	/**
+	 * What the last timing run measured for this chunk: its cost per tick and its share of the server's tick time,
+	 * then each kind of cost. Empty if the chunk was not among the expensive ones.
+	 */
+	public static List<Text> timingLines(ChunkTimingResult result, String dimensionId, int chunkX, int chunkZ) {
+		List<Text> lines = new ArrayList<>();
+		ChunkTimingResult.Dimension dimension = result == null ? null : result.dimension(dimensionId);
+		int entry = dimension == null ? -1 : dimension.find(chunkX, chunkZ);
+		if (entry < 0) {
+			return lines;
+		}
+		double ticks = Math.max(1, result.ticks());
+		long total = dimension.totalMicros(entry);
+		String share = result.tickMicros() > 0 ? String.format(Locale.ROOT, "%.1f", 100.0 * total / result.tickMicros()) : "?";
+		lines.add(Text.translatable("timing.rtmap.chunk_cost", TimingPanel.format(total / 1000.0 / ticks), share).formatted(Formatting.GOLD));
+
+		List<Integer> order = new ArrayList<>();
+		for (int category = 0; category < ChunkTimingResult.CATEGORIES; category++) {
+			if (dimension.micros(entry, category) > 0) {
+				order.add(category);
+			}
+		}
+		order.sort((a, b) -> Integer.compare(dimension.micros(entry, b), dimension.micros(entry, a)));
+		for (int category : order) {
+			lines.add(Text.literal("  " + TimingPanel.categoryName(category) + ": "
+				+ TimingPanel.format(dimension.micros(entry, category) / 1000.0 / ticks) + " ms").formatted(Formatting.GRAY));
 		}
 		return lines;
 	}
