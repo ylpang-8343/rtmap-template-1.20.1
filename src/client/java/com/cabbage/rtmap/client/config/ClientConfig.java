@@ -9,8 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import com.cabbage.rtmap.RTMap;
 import com.google.gson.Gson;
@@ -59,6 +61,8 @@ public final class ClientConfig {
 	private static boolean showCoordinates = true;
 	private static boolean spawnRangeAroundPlayer = false;
 	private static int timingSeconds = 10;
+	/** Dimensions with a roof whose map shows the view from above the roof instead of from below it. */
+	private static final Set<String> roofViewDimensions = new HashSet<>();
 	/** The radii of the mob spawning rings, in blocks. Only editable in the file. */
 	private static int[] spawnRangeRadii = {24, 128};
 	private static boolean showConvertedCoordinates = true;
@@ -165,6 +169,17 @@ public final class ClientConfig {
 			}
 		}
 		return best;
+	}
+
+	/** Whether this dimension is shown from above its roof. */
+	public static boolean roofView(String dimensionId) {
+		return roofViewDimensions.contains(dimensionId);
+	}
+
+	public static void setRoofView(String dimensionId, boolean above) {
+		if (above ? roofViewDimensions.add(dimensionId) : roofViewDimensions.remove(dimensionId)) {
+			dirty = true;
+		}
 	}
 
 	public static int[] spawnRangeRadii() {
@@ -292,6 +307,15 @@ public final class ClientConfig {
 			showCoordinates = readBoolean(obj, "show_coordinates", showCoordinates);
 			spawnRangeAroundPlayer = readBoolean(obj, "spawn_range_around_player", spawnRangeAroundPlayer);
 			timingSeconds = nearestTimingSeconds(readInt(obj, "timing_seconds", timingSeconds));
+			roofViewDimensions.clear();
+			JsonElement roofViews = obj.get("roof_view_dimensions");
+			if (roofViews != null && roofViews.isJsonArray()) {
+				for (JsonElement element : roofViews.getAsJsonArray()) {
+					if (element.isJsonPrimitive()) {
+						roofViewDimensions.add(element.getAsString());
+					}
+				}
+			}
 			spawnRangeRadii = readRadii(obj, "spawn_range_radii", spawnRangeRadii);
 			showConvertedCoordinates = readBoolean(obj, "show_converted_coordinates", showConvertedCoordinates);
 			showOtherDimensionWaypoints = readBoolean(obj, "show_other_dimension_waypoints", showOtherDimensionWaypoints);
@@ -335,6 +359,9 @@ public final class ClientConfig {
 		obj.addProperty("show_coordinates", showCoordinates);
 		obj.addProperty("spawn_range_around_player", spawnRangeAroundPlayer);
 		obj.addProperty("timing_seconds", timingSeconds);
+		com.google.gson.JsonArray roofViews = new com.google.gson.JsonArray();
+		roofViewDimensions.forEach(roofViews::add);
+		obj.add("roof_view_dimensions", roofViews);
 		com.google.gson.JsonArray radii = new com.google.gson.JsonArray();
 		for (int radius : spawnRangeRadii) {
 			radii.add(radius);

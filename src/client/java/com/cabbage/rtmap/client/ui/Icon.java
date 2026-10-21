@@ -8,7 +8,7 @@ import net.minecraft.client.gui.DrawContext;
  */
 public enum Icon {
 	HEAT, STATE, SLIME, SPAWN, PORTAL, WAYPOINT, LIST, RULER, RECTANGLE, CIRCLE, CLEAR, SETTINGS, CENTER, ZOOM_IN, ZOOM_OUT,
-	LAYER, TIMING, RECORD;
+	LAYER, TIMING, RECORD, ROOF;
 
 	public static final int SIZE = 16;
 
@@ -119,6 +119,13 @@ public enum Icon {
 				box(c, x + 7, y + 3, 2, 10, shade(0xE0E0E8, on));
 			}
 			case ZOOM_OUT -> box(c, x + 3, y + 7, 10, 2, shade(0xE0E0E8, on));
+			case ROOF -> {
+				box(c, x + 1, y + 2, 14, 3, shade(0xA0A0A8, on));
+				box(c, x + 1, y + 5, 14, 1, shade(0x505058, on));
+				box(c, x + 2, y + 7, 3, 7, shade(0xB03030, on));
+				box(c, x + 7, y + 7, 3, 5, shade(0xB03030, on));
+				box(c, x + 12, y + 7, 2, 8, shade(0xB03030, on));
+			}
 			case TIMING -> {
 				circle(c, x + 8, y + 9, 6, shade(0xFFD27F, on));
 				box(c, x + 6, y + 1, 4, 2, shade(0xFFD27F, on));

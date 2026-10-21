@@ -141,10 +141,7 @@ public final class Minimap {
 		}
 
 		MapCache.beginFrame();
-		// There is no terrain view of dimensions with a roof (the nether) yet, but waypoints and portals still show.
-		if (!world.getDimension().hasCeiling()) {
-			MapRenderer.drawTiles(context, world, position.x, position.z, zoom, halfBlocks, halfBlocks);
-		}
+		MapRenderer.drawTiles(context, world, position.x, position.z, zoom, halfBlocks, halfBlocks);
 		MapLayers.renderAll(context, new LayerView(world, position.x, position.z, zoom, halfBlocks, halfBlocks, true, rotation));
 
 		matrices.pop();

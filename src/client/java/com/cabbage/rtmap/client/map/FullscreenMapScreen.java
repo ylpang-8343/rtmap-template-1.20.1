@@ -68,6 +68,7 @@ public final class FullscreenMapScreen extends Screen {
 	private static final int SEPARATOR_GAP = 8;
 	private static final int STATUS_HEIGHT = 14;
 	private static final long FLASH_MS = 2500;
+	private static final long ROOF_NOTE_MS = 8000;
 
 	// Camera center in block coordinates, and real screen pixels per block.
 	private double cameraX;
@@ -94,6 +95,8 @@ public final class FullscreenMapScreen extends Screen {
 	/** A short message in the status area, such as "coordinates copied". */
 	private Text flash = Text.empty();
 	private long flashUntil;
+	/** When the screen was opened, so a hint can be shown for the first few seconds only. */
+	private final long openedMs = Util.getMeasuringTimeMs();
 
 	public FullscreenMapScreen() {
 		super(Text.translatable("screen.rtmap.map"));
@@ -116,6 +119,12 @@ public final class FullscreenMapScreen extends Screen {
 			}
 			left.add(new IconButton(0, 0, BUTTON, () -> Icon.forLayer(layer.id()), () -> layerLabel(layer),
 				() -> MapLayers.isEnabled(layer), pressed -> MapLayers.setEnabled(layer, !MapLayers.isEnabled(layer))));
+		}
+		// In a dimension with a roof: choose between the view from below the roof and the view from above it.
+		if (client.world != null && client.world.getDimension().hasCeiling()) {
+			left.add(null);
+			left.add(new IconButton(0, 0, BUTTON, () -> Icon.ROOF, FullscreenMapScreen::roofLabel, MapViews::roofViewOn,
+				pressed -> MapViews.toggleRoof()));
 		}
 		left.add(null);
 		left.add(new IconButton(0, 0, BUTTON, FullscreenMapScreen::measureIcon, FullscreenMapScreen::measureLabel,
@@ -220,6 +229,10 @@ public final class FullscreenMapScreen extends Screen {
 			case CIRCLE -> Icon.CIRCLE;
 			default -> Icon.RULER;
 		};
+	}
+
+	private static Text roofLabel() {
+		return Text.translatable(MapViews.roofViewOn() ? "view.rtmap.roof_above" : "view.rtmap.roof_below");
 	}
 
 	private static Text timingLabel() {
@@ -403,9 +416,10 @@ public final class FullscreenMapScreen extends Screen {
 			colors[count++] = 0xFF80FF80;
 			messages.add(flash);
 		}
-		if (world.getDimension().hasCeiling()) {
+		// In a dimension with a roof the map shows the floor of the highest open space; say so for a few seconds.
+		if (world.getDimension().hasCeiling() && Util.getMeasuringTimeMs() - openedMs < ROOF_NOTE_MS) {
 			colors[count++] = 0xFFA0A0A0;
-			messages.add(Text.translatable("screen.rtmap.map.unsupported_dimension"));
+			messages.add(Text.translatable(MapViews.roofViewOn() ? "screen.rtmap.map.roof_view_note" : "screen.rtmap.map.roofed_note"));
 		}
 		// The slime chunk layer needs the world seed; without one it draws nothing, so say so.
 		if (DimensionScale.OVERWORLD.equals(Waypoints.dimensionId(world)) && MapLayers.isEnabled("slime_chunks")
@@ -547,10 +561,7 @@ public final class FullscreenMapScreen extends Screen {
 		matrices.translate(width / 2.0, height / 2.0, 0);
 
 		MapCache.beginFrame();
-		// There is no terrain view of dimensions with a roof (the nether) yet, but waypoints and portals still show.
-		if (!world.getDimension().hasCeiling()) {
-			MapRenderer.drawTiles(context, world, cameraX, cameraZ, guiZoom, halfWidth, halfHeight);
-		}
+		MapRenderer.drawTiles(context, world, cameraX, cameraZ, guiZoom, halfWidth, halfHeight);
 		MapLayers.renderAll(context, new LayerView(world, cameraX, cameraZ, guiZoom, halfWidth, halfHeight, false, 0f));
 
 		matrices.pop();

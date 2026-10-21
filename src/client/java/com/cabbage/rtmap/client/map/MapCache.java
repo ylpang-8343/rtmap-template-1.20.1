@@ -8,9 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
 
 /**
  * Map tiles currently held in memory, backed by {@link MapStorage}.
@@ -49,10 +47,10 @@ public final class MapCache {
 		}
 	}
 
-	private record Entry(RegistryKey<World> dimension, DimensionData data, int level, long key, MapRegion region) {
+	private record Entry(MapView dimension, DimensionData data, int level, long key, MapRegion region) {
 	}
 
-	private static final Map<RegistryKey<World>, DimensionData> DIMENSIONS = new HashMap<>();
+	private static final Map<MapView, DimensionData> DIMENSIONS = new HashMap<>();
 	private static long clock;
 	private static int loadedCount;
 	private static int displayLoads;
@@ -61,7 +59,7 @@ public final class MapCache {
 	private MapCache() {
 	}
 
-	private static DimensionData data(RegistryKey<World> dimension) {
+	private static DimensionData data(MapView dimension) {
 		DimensionData data = DIMENSIONS.get(dimension);
 		if (data == null) {
 			data = new DimensionData(MapStorage.listTiles(dimension, MAX_LEVEL));
@@ -79,7 +77,7 @@ public final class MapCache {
 	}
 
 	/** The region to draw chunks into: loaded from disk if it was saved before, otherwise new. */
-	public static MapRegion regionForWrite(RegistryKey<World> dimension, int regionX, int regionZ) {
+	public static MapRegion regionForWrite(MapView dimension, int regionX, int regionZ) {
 		return getOrOpen(dimension, data(dimension), 0, regionX, regionZ);
 	}
 
@@ -89,7 +87,7 @@ public final class MapCache {
 	}
 
 	/** A tile for drawing, or null if it is empty or not loaded yet. */
-	public static MapRegion tileForDisplay(RegistryKey<World> dimension, int level, int x, int z) {
+	public static MapRegion tileForDisplay(MapView dimension, int level, int x, int z) {
 		DimensionData data = data(dimension);
 		long key = ChunkPos.toLong(x, z);
 		MapRegion region = data.loaded.get(level).get(key);
@@ -104,7 +102,7 @@ public final class MapCache {
 		return region;
 	}
 
-	private static MapRegion getOrOpen(RegistryKey<World> dimension, DimensionData data, int level, int x, int z) {
+	private static MapRegion getOrOpen(MapView dimension, DimensionData data, int level, int x, int z) {
 		long key = ChunkPos.toLong(x, z);
 		MapRegion region = data.loaded.get(level).get(key);
 		if (region == null) {
@@ -127,7 +125,7 @@ public final class MapCache {
 	private static void evictIfNeeded(MapRegion keep) {
 		while (loadedCount > MAX_LOADED) {
 			Entry oldest = null;
-			for (Map.Entry<RegistryKey<World>, DimensionData> dimension : DIMENSIONS.entrySet()) {
+			for (Map.Entry<MapView, DimensionData> dimension : DIMENSIONS.entrySet()) {
 				DimensionData data = dimension.getValue();
 				for (int level = 0; level <= MAX_LEVEL; level++) {
 					for (Map.Entry<Long, MapRegion> entry : data.loaded.get(level).entrySet()) {
@@ -166,7 +164,7 @@ public final class MapCache {
 	}
 
 	/** Folds a region's pixels into the overview tiles above it. {@code pixels} is only read. */
-	private static void updateOverviews(RegistryKey<World> dimension, DimensionData data, int regionX, int regionZ, int[] pixels) {
+	private static void updateOverviews(MapView dimension, DimensionData data, int regionX, int regionZ, int[] pixels) {
 		int[] current = pixels;
 		int size = MapRegion.SIZE;
 		for (int level = 1; level <= MAX_LEVEL; level++) {
@@ -226,7 +224,7 @@ public final class MapCache {
 	public static void saveAll() {
 		// Saving a region can open overview tiles and evict others, so work from a copy.
 		List<Entry> entries = new ArrayList<>();
-		for (Map.Entry<RegistryKey<World>, DimensionData> dimension : DIMENSIONS.entrySet()) {
+		for (Map.Entry<MapView, DimensionData> dimension : DIMENSIONS.entrySet()) {
 			DimensionData data = dimension.getValue();
 			for (int level = 0; level <= MAX_LEVEL; level++) {
 				for (Map.Entry<Long, MapRegion> entry : data.loaded.get(level).entrySet()) {
@@ -240,7 +238,7 @@ public final class MapCache {
 			save(entry);
 		}
 		// Tiles created by the pass above were not in the copy.
-		for (Map.Entry<RegistryKey<World>, DimensionData> dimension : DIMENSIONS.entrySet()) {
+		for (Map.Entry<MapView, DimensionData> dimension : DIMENSIONS.entrySet()) {
 			DimensionData data = dimension.getValue();
 			for (int level = 1; level <= MAX_LEVEL; level++) {
 				for (Map.Entry<Long, MapRegion> entry : new ArrayList<>(data.loaded.get(level).entrySet())) {
@@ -259,7 +257,7 @@ public final class MapCache {
 	}
 
 	private static void rebuildOverviews() {
-		for (Map.Entry<RegistryKey<World>, DimensionData> dimension : new ArrayList<>(DIMENSIONS.entrySet())) {
+		for (Map.Entry<MapView, DimensionData> dimension : new ArrayList<>(DIMENSIONS.entrySet())) {
 			DimensionData data = dimension.getValue();
 			for (int done = 0; done < OVERVIEW_REBUILDS_PER_TICK && !data.overviewRebuild.isEmpty(); done++) {
 				long key = data.overviewRebuild.poll();

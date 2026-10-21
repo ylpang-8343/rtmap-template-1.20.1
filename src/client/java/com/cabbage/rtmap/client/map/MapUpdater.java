@@ -30,6 +30,8 @@ public final class MapUpdater {
 	private static ClientWorld pendingWorld;
 	private static ClientPlayNetworkHandler trackedConnection;
 	private static boolean storageReady;
+	/** The view that was being sampled last tick; when it changes, the chunks around the player are sampled again. */
+	private static MapView sampledView;
 	private static int ticks;
 
 	private MapUpdater() {
@@ -51,6 +53,7 @@ public final class MapUpdater {
 		PENDING.clear();
 		pendingWorld = null;
 		storageReady = false;
+		sampledView = null;
 		ticks = 0;
 		trackedConnection = null;
 		// Both must be flushed while the storage path still points at their world.
@@ -92,14 +95,18 @@ public final class MapUpdater {
 			PortalStore.load(MapStorage.currentWorldDir());
 			WaypointStore.load(MapStorage.currentWorldDir());
 			ManualSeed.load(MapStorage.currentWorldDir());
-			queueLoadedChunksAround(client, world);
+			queueLoadedChunksAround(client, world, true);
 		}
 		MapCache.tick();
 
-		// Nether-like dimensions have a roof, so a plain surface view would just show bedrock.
-		if (world.getDimension().hasCeiling()) {
-			PENDING.clear();
-			return;
+		// Switching to another view of the same dimension (the Nether's roof, say) starts its tiles from what is loaded now.
+		MapView view = MapViews.current(world);
+		if (!view.equals(sampledView)) {
+			if (sampledView != null && sampledView.dimension() == view.dimension()) {
+				PENDING.clear();
+				queueLoadedChunksAround(client, world, false);
+			}
+			sampledView = view;
 		}
 
 		if (++ticks % REFRESH_INTERVAL_TICKS == 0) {
@@ -123,13 +130,13 @@ public final class MapUpdater {
 			}
 			int regionX = Math.floorDiv(pos.getStartX(), MapRegion.SIZE);
 			int regionZ = Math.floorDiv(pos.getStartZ(), MapRegion.SIZE);
-			ChunkSampler.sample(world, chunk, MapCache.regionForWrite(world.getRegistryKey(), regionX, regionZ));
+			ChunkSampler.sample(world, chunk, MapCache.regionForWrite(view, regionX, regionZ), !view.layer().equals(MapView.ROOF));
 			processed++;
 		}
 	}
 
 	/** Chunks that loaded while the world was still being identified were skipped, so pick them up now. */
-	private static void queueLoadedChunksAround(MinecraftClient client, ClientWorld world) {
+	private static void queueLoadedChunksAround(MinecraftClient client, ClientWorld world, boolean scanPortals) {
 		int radius = client.options.getClampedViewDistance();
 		ChunkPos center = client.player.getChunkPos();
 		for (int dx = -radius; dx <= radius; dx++) {
@@ -137,7 +144,9 @@ public final class MapUpdater {
 				if (world.getChunkManager().getWorldChunk(center.x + dx, center.z + dz) != null) {
 					PENDING.add(new ChunkPos(center.x + dx, center.z + dz));
 					// Chunks that loaded before the world was identified were not scanned for portals either.
-					PortalScanner.queue(world, new ChunkPos(center.x + dx, center.z + dz));
+					if (scanPortals) {
+						PortalScanner.queue(world, new ChunkPos(center.x + dx, center.z + dz));
+					}
 				}
 			}
 		}

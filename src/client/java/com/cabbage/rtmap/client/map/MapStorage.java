@@ -35,10 +35,8 @@ import com.cabbage.rtmap.server.WorldIdState;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ServerInfo;
-import net.minecraft.registry.RegistryKey;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
 
 /**
  * Saves map tiles to <code>&lt;game dir&gt;/rtmap/maps/&lt;world&gt;/&lt;dimension&gt;/</code>: full-detail regions as
@@ -137,11 +135,13 @@ public final class MapStorage {
 		return text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]", "_");
 	}
 
-	private static Path dimensionDir(RegistryKey<World> dimension) {
-		return worldDir.resolve(sanitize(dimension.getValue().toString()));
+	/** The folder of a view. The default view keeps the plain dimension folder, so older maps are still found. */
+	private static Path dimensionDir(MapView view) {
+		Path base = worldDir.resolve(sanitize(view.dimension().getValue().toString()));
+		return view.isDefault() ? base : base.resolve("layer-" + sanitize(view.layer()));
 	}
 
-	private static Path file(RegistryKey<World> dimension, int level, int x, int z) {
+	private static Path file(MapView dimension, int level, int x, int z) {
 		String prefix = level == 0 ? "r" : "l" + level;
 		return dimensionDir(dimension).resolve(prefix + "." + x + "." + z + ".rtm");
 	}
@@ -150,7 +150,7 @@ public final class MapStorage {
 	 * Which tiles of a dimension exist on disk, per level (0 is full detail), as {@link ChunkPos#toLong} keys.
 	 * Every level from 0 to {@code maxLevel} has an entry, possibly empty.
 	 */
-	public static Map<Integer, Set<Long>> listTiles(RegistryKey<World> dimension, int maxLevel) {
+	public static Map<Integer, Set<Long>> listTiles(MapView dimension, int maxLevel) {
 		Map<Integer, Set<Long>> found = new HashMap<>();
 		for (int level = 0; level <= maxLevel; level++) {
 			found.put(level, new HashSet<>());
@@ -176,17 +176,17 @@ public final class MapStorage {
 		return found;
 	}
 
-	private static Path lodMarker(RegistryKey<World> dimension) {
+	private static Path lodMarker(MapView dimension) {
 		return dimensionDir(dimension).resolve("overview.ok");
 	}
 
 	/** Whether the overview tiles of this dimension are known to be complete. */
-	public static boolean hasOverviewMarker(RegistryKey<World> dimension) {
+	public static boolean hasOverviewMarker(MapView dimension) {
 		return Files.exists(lodMarker(dimension));
 	}
 
 	/** Records that the overview tiles are complete. Queued behind earlier writes, so it lands after them. */
-	public static void writeOverviewMarker(RegistryKey<World> dimension) {
+	public static void writeOverviewMarker(MapView dimension) {
 		Path path = lodMarker(dimension);
 		IO.execute(() -> {
 			try {
@@ -199,7 +199,7 @@ public final class MapStorage {
 	}
 
 	/** Reads a tile, or returns null if it does not exist or cannot be read. */
-	public static int[] read(RegistryKey<World> dimension, int level, int x, int z) {
+	public static int[] read(MapView dimension, int level, int x, int z) {
 		Path path = file(dimension, level, x, z);
 		int[] pending = PENDING.get(path);
 		if (pending != null) {
@@ -239,7 +239,7 @@ public final class MapStorage {
 	}
 
 	/** Queues a tile for writing on the background thread. {@code pixels} must not be modified afterwards. */
-	public static void write(RegistryKey<World> dimension, int level, int x, int z, int[] pixels) {
+	public static void write(MapView dimension, int level, int x, int z, int[] pixels) {
 		Path path = file(dimension, level, x, z);
 		PENDING.put(path, pixels);
 		IO.execute(() -> {

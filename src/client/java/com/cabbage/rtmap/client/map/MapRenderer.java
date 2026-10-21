@@ -32,6 +32,7 @@ public final class MapRenderer {
 		double pixelsPerBlock = zoom * guiScale();
 		int level = Math.max(0, Math.min(MapCache.MAX_LEVEL, (int) Math.floor(-Math.log(pixelsPerBlock) / Math.log(2))));
 		int tileBlocks = MapRegion.SIZE << level;
+		MapView view = MapViews.current(world);
 
 		// Keep the map on whole screen pixels, otherwise every texel is resampled at a fractional offset while
 		// panning and the picture shimmers and softens.
@@ -52,7 +53,7 @@ public final class MapRenderer {
 
 		for (int tileZ = firstZ; tileZ <= lastZ; tileZ++) {
 			for (int tileX = firstX; tileX <= lastX; tileX++) {
-				MapRegion tile = MapCache.tileForDisplay(world.getRegistryKey(), level, tileX, tileZ);
+				MapRegion tile = MapCache.tileForDisplay(view, level, tileX, tileZ);
 				if (tile == null) {
 					continue; // never explored, or still being read from disk
 				}
