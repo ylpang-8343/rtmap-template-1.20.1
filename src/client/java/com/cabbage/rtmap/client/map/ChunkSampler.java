@@ -49,6 +49,7 @@ public final class ChunkSampler {
 		int[] heights = new int[256];
 		MapColor[] colors = new MapColor[256];
 		int[] fluidDepths = new int[256];
+		boolean[] lava = new boolean[256];
 		for (int dz = 0; dz < 16; dz++) {
 			for (int dx = 0; dx < 16; dx++) {
 				int i = dz * 16 + dx;
@@ -84,6 +85,7 @@ public final class ChunkSampler {
 						depth++;
 					}
 					fluidDepths[i] = depth;
+					lava[i] = isLava;
 					if (water) {
 						color = MapColor.WATER_BLUE;
 					}
@@ -124,7 +126,7 @@ public final class ChunkSampler {
 					brightness = shade > 0.6 ? MapColor.Brightness.HIGH
 						: shade < -0.6 ? MapColor.Brightness.LOW : MapColor.Brightness.NORMAL;
 				}
-				region.setPixel(pixelX + dx, pixelZ + dz, color.getRenderColor(brightness));
+				region.setPixel(pixelX + dx, pixelZ + dz, lava[i] ? lavaColor(brightness) : color.getRenderColor(brightness));
 			}
 		}
 	}
@@ -137,6 +139,19 @@ public final class ChunkSampler {
 			return y < bottom ? bottom : y;
 		}
 		return north.getHeightmap(Heightmap.Type.WORLD_SURFACE).get(dx, 15) - 1;
+	}
+
+	/**
+	 * Lava is drawn in bright orange, shaded a little by depth like water. Vanilla's lava colour is a dark red that
+	 * disappears against netherrack, and a lava sea is the thing to see from far away. The values are in the pixel
+	 * format of a map tile (opaque, blue-green-red byte order), like {@link net.minecraft.block.MapColor#getRenderColor}.
+	 */
+	private static int lavaColor(MapColor.Brightness brightness) {
+		return switch (brightness) {
+			case HIGH -> 0xFF28A5FF; // 255, 165, 40
+			case LOW -> 0xFF1073F0; // 240, 115, 16
+			default -> 0xFF188CFF; // 255, 140, 24
+		};
 	}
 
 	/** The topmost block that has a map colour, scanning down from {@code from}; below {@code bottom} if there is none. */
