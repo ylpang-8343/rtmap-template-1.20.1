@@ -89,6 +89,7 @@ public final class FullscreenMapScreen extends Screen {
 
 	private final ContextMenu menu = new ContextMenu();
 	private final TimingPanel timingPanel = new TimingPanel();
+	private final LayerStrip layerStrip = new LayerStrip();
 	private final List<int[]> separators = new ArrayList<>();
 	private int toolbarHeight = BUTTON + 2 * BAR_PADDING;
 	private IconButton clearButton;
@@ -120,12 +121,10 @@ public final class FullscreenMapScreen extends Screen {
 			left.add(new IconButton(0, 0, BUTTON, () -> Icon.forLayer(layer.id()), () -> layerLabel(layer),
 				() -> MapLayers.isEnabled(layer), pressed -> MapLayers.setEnabled(layer, !MapLayers.isEnabled(layer))));
 		}
-		// In a dimension with a roof: choose between the view from below the roof and the view from above it.
-		if (client.world != null && client.world.getDimension().hasCeiling()) {
-			left.add(null);
-			left.add(new IconButton(0, 0, BUTTON, () -> Icon.ROOF, FullscreenMapScreen::roofLabel, MapViews::roofViewOn,
-				pressed -> MapViews.toggleRoof()));
-		}
+		// Follow the player between layers: the slice they are in underground, the surface above ground.
+		left.add(null);
+		left.add(new IconButton(0, 0, BUTTON, () -> Icon.AUTO, FullscreenMapScreen::followLabel, ClientConfig::followLayer,
+			pressed -> MapViews.setFollow(!ClientConfig.followLayer())));
 		left.add(null);
 		left.add(new IconButton(0, 0, BUTTON, FullscreenMapScreen::measureIcon, FullscreenMapScreen::measureLabel,
 			MeasureTool::active, pressed -> {
@@ -231,8 +230,8 @@ public final class FullscreenMapScreen extends Screen {
 		};
 	}
 
-	private static Text roofLabel() {
-		return Text.translatable(MapViews.roofViewOn() ? "view.rtmap.roof_above" : "view.rtmap.roof_below");
+	private static Text followLabel() {
+		return Text.translatable(ClientConfig.followLayer() ? "view.rtmap.follow_on" : "view.rtmap.follow_off");
 	}
 
 	private static Text timingLabel() {
@@ -293,11 +292,14 @@ public final class FullscreenMapScreen extends Screen {
 		super.render(context, mouseX, mouseY, delta);
 		drawStatusLine(context, player, mouseX, mouseY);
 		drawTimingPanel(context, mouseX, mouseY);
+		drawLayerStrip(context, mouseX, mouseY);
 		drawMeasurement(context);
 		drawMessages(context, world);
 
 		if (menu.isOpen()) {
 			menu.render(context, textRenderer, mouseX, mouseY);
+		} else if (layerStrip.contains(mouseX, mouseY)) {
+			layerStrip.renderTooltip(context, textRenderer, world, mouseX, mouseY);
 		} else if (!overBar(mouseX, mouseY) && !drawPortalTooltip(context, mouseX, mouseY)) {
 			drawChunkTooltip(context, mouseX, mouseY);
 		}
@@ -313,6 +315,16 @@ public final class FullscreenMapScreen extends Screen {
 		}
 		timingPanel.render(context, textRenderer, width, toolbarHeight + 4, mouseX, mouseY, result,
 			Waypoints.dimensionId(client.world));
+	}
+
+	/** The layer strip at the left edge, kept clear of the measurement box when that is showing. */
+	private void drawLayerStrip(DrawContext context, int mouseX, int mouseY) {
+		if (client.world == null || client.player == null) {
+			layerStrip.hide();
+			return;
+		}
+		int bottom = height - STATUS_HEIGHT - 6 - (MeasureTool.active() ? 74 : 0);
+		layerStrip.render(context, textRenderer, client.world, client.player, 4, toolbarHeight + 6, bottom, mouseX, mouseY);
 	}
 
 	private void drawToolbar(DrawContext context) {
@@ -417,9 +429,9 @@ public final class FullscreenMapScreen extends Screen {
 			messages.add(flash);
 		}
 		// In a dimension with a roof the map shows the floor of the highest open space; say so for a few seconds.
-		if (world.getDimension().hasCeiling() && Util.getMeasuringTimeMs() - openedMs < ROOF_NOTE_MS) {
+		if (world.getDimension().hasCeiling() && !MapViews.current(world).isSlice() && Util.getMeasuringTimeMs() - openedMs < ROOF_NOTE_MS) {
 			colors[count++] = 0xFFA0A0A0;
-			messages.add(Text.translatable(MapViews.roofViewOn() ? "screen.rtmap.map.roof_view_note" : "screen.rtmap.map.roofed_note"));
+			messages.add(Text.translatable(MapViews.current(world).isRoof() ? "screen.rtmap.map.roof_view_note" : "screen.rtmap.map.roofed_note"));
 		}
 		// The slime chunk layer needs the world seed; without one it draws nothing, so say so.
 		if (DimensionScale.OVERWORLD.equals(Waypoints.dimensionId(world)) && MapLayers.isEnabled("slime_chunks")
@@ -581,6 +593,9 @@ public final class FullscreenMapScreen extends Screen {
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
 		menu.close();
+		if (client.world != null && layerStrip.contains(mouseX, mouseY)) {
+			return layerStrip.scroll(client.world, amount);
+		}
 		// Keep the block under the cursor where it is while zooming.
 		double anchorX = worldX(mouseX);
 		double anchorZ = worldZ(mouseY);
@@ -598,6 +613,11 @@ public final class FullscreenMapScreen extends Screen {
 		}
 		if (super.mouseClicked(mouseX, mouseY, button)) {
 			return true; // a button took it
+		}
+		// The layer strip chooses a layer; it never starts a drag or a click on the map under it.
+		if (client.world != null && layerStrip.contains(mouseX, mouseY)) {
+			layerStrip.click(client.world, mouseX, mouseY, button);
+			return true;
 		}
 		// A row of the timing panel centres the map on that chunk; the rest of the panel is not the map either.
 		int[] listed = timingPanel.clickedChunk(mouseX, mouseY);

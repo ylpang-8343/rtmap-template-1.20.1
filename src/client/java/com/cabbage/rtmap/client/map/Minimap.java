@@ -98,6 +98,11 @@ public final class Minimap {
 
 		if (MapStorage.isResolved()) {
 			drawMap(context, client, world, player, tickDelta, x, y, size);
+			// Which layer this is, when it is not the normal one.
+			Text layerText = MapViews.shortLabel(MapViews.current(world));
+			if (!layerText.getString().isEmpty()) {
+				context.drawTextWithShadow(client.textRenderer, layerText, x + 3, y + 3, 0xFFD27F);
+			}
 		}
 
 		if (coordinates) {

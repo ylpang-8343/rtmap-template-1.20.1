@@ -51,6 +51,7 @@ public final class ClientMap {
 					client.setScreen(new FullscreenMapScreen());
 				}
 			}
+			MapViews.tick(client);
 			MapUpdater.tick(client);
 
 			// Settings changed by key presses (minimap zoom, toggle) are written out every few seconds.

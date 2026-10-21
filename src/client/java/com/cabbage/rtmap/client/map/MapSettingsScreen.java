@@ -114,6 +114,8 @@ public final class MapSettingsScreen extends Screen {
 			add(Category.LAYERS, key, w -> CyclingButtonWidget.onOffBuilder(MapLayers.isEnabled(layer))
 				.build(0, 0, w, HEIGHT, Text.translatable(key), (button, value) -> MapLayers.setEnabled(layer, value)));
 		}
+		add(Category.LAYERS, "option.rtmap.follow_layer", w -> CyclingButtonWidget.onOffBuilder(ClientConfig.followLayer())
+			.build(0, 0, w, HEIGHT, Text.translatable("option.rtmap.follow_layer"), (button, value) -> MapViews.setFollow(value)));
 		add(Category.LAYERS, "option.rtmap.timing_seconds", w -> CyclingButtonWidget.<Integer>builder(seconds -> Text.literal(seconds + " s"))
 			.values(java.util.Arrays.stream(ClientConfig.TIMING_SECONDS).boxed().toList())
 			.initially(ClientConfig.timingSeconds())

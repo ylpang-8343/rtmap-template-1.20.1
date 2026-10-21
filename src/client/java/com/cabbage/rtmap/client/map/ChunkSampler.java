@@ -8,6 +8,7 @@ import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.ChunkSectionPos;
+import net.minecraft.world.EmptyBlockView;
 import net.minecraft.world.Heightmap;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkSection;
@@ -22,31 +23,45 @@ import net.minecraft.world.chunk.WorldChunk;
  * what you would see with the roof taken off: the floor of the highest open space in each column. Solid blocks from
  * the top are skipped until the first air, and the first solid block below that air is the surface. Things built
  * on top of the roof are not shown.
+ *
+ * <p>A slice (a 16 block layer chosen with the layer strip) shows caves only: a column is drawn if there is open space
+ * (air, something see-through, or a fluid) inside the slice, and what is drawn is the floor of that space. Solid rock
+ * in the slice is left blank, because a map of what is inside solid rock would be an X-ray.
  */
 public final class ChunkSampler {
+	/** Marks a column with nothing to draw, so shading never compares against it. */
+	private static final int NO_HEIGHT = Integer.MIN_VALUE;
+
 	private ChunkSampler() {
 	}
 
 	/**
-	 * @param belowRoof for a dimension with a roof: show the floor of its highest open space (true) or the top, roof
-	 *                  included (false). Ignored in dimensions without a roof.
+	 * @param view what to draw: a slice looks down from the top of its 16 blocks; the roof view and the default view
+	 *             of a dimension without a roof take the top block; the default view of a dimension with a roof
+	 *             looks down from the top of its space
 	 */
-	public static void sample(ClientWorld world, WorldChunk chunk, MapRegion region, boolean belowRoof) {
+	public static void sample(ClientWorld world, WorldChunk chunk, MapRegion region, MapView view) {
 		ChunkPos chunkPos = chunk.getPos();
 		int baseX = chunkPos.getStartX();
 		int baseZ = chunkPos.getStartZ();
 		int pixelX = Math.floorMod(baseX, MapRegion.SIZE);
 		int pixelZ = Math.floorMod(baseZ, MapRegion.SIZE);
 
-		boolean roofed = belowRoof && world.getDimension().hasCeiling();
+		// Whether to look down from a height (skipping the solid blocks at the top) or to take the top block as it is.
+		boolean roofed = view.isSlice() || (view.isDefault() && world.getDimension().hasCeiling());
 		int bottom = world.getBottomY();
 		// The highest block of the part of the world that counts: the roof's top for a roofed dimension.
-		int startY = Math.min(world.getTopY(), world.getDimension().minY() + world.getDimension().logicalHeight()) - 1;
+		int startY = view.isSlice() ? Math.min(MapView.sliceTopY(view.section()), MapViews.roofTopY(world)) : MapViews.roofTopY(world);
+		// A slice only looks for open space inside its own 16 blocks; the other views may look all the way down.
+		int endY = view.isSlice() ? Math.max(bottom, view.section() * 16) : bottom;
 		Heightmap heightmap = chunk.getHeightmap(Heightmap.Type.WORLD_SURFACE);
 		BlockPos.Mutable pos = new BlockPos.Mutable();
 
 		// First pass: find the surface block of every column.
 		int[] heights = new int[256];
+		java.util.Arrays.fill(heights, NO_HEIGHT);
+		// Per section of this chunk: 0 not looked at yet, 1 only solid blocks, 2 has air or other see-through blocks.
+		byte[] solidSections = new byte[chunk.countVerticalSections()];
 		MapColor[] colors = new MapColor[256];
 		int[] fluidDepths = new int[256];
 		boolean[] lava = new boolean[256];
@@ -57,7 +72,7 @@ public final class ChunkSampler {
 				int z = baseZ + dz;
 
 				int y = roofed
-					? roofedSurfaceY(world, chunk, x, z, startY, bottom, pos)
+					? roofedSurfaceY(world, chunk, x, z, startY, endY, bottom, pos, solidSections)
 					// The heightmap points at the first free block above the surface.
 					: openSurfaceY(world, chunk, x, z, heightmap.get(dx, dz) - 1, bottom, pos);
 				if (y < bottom) {
@@ -118,9 +133,12 @@ public final class ChunkSampler {
 					if (dz > 0) {
 						northHeight = heights[i - 16];
 					} else if (north != null) {
-						northHeight = northNeighborHeight(world, north, baseX + dx, baseZ - 1, dx, roofed, startY, bottom, pos);
+						northHeight = northNeighborHeight(world, north, baseX + dx, baseZ - 1, dx, roofed, startY, endY, bottom, pos);
 					} else {
-						northHeight = heights[i];
+						northHeight = NO_HEIGHT;
+					}
+					if (northHeight == NO_HEIGHT) {
+						northHeight = heights[i]; // nothing drawn next to it, so no slope to show
 					}
 					double shade = (heights[i] - northHeight) * 4.0 / 5.0 + (parity - 0.5) * 0.4;
 					brightness = shade > 0.6 ? MapColor.Brightness.HIGH
@@ -133,10 +151,10 @@ public final class ChunkSampler {
 
 	/** Height of the surface of the last row of the chunk to the north, for shading across the chunk border. */
 	private static int northNeighborHeight(ClientWorld world, Chunk north, int x, int z, int dx, boolean roofed, int startY,
-		int bottom, BlockPos.Mutable pos) {
+		int endY, int bottom, BlockPos.Mutable pos) {
 		if (roofed) {
-			int y = roofedSurfaceY(world, north, x, z, startY, bottom, pos);
-			return y < bottom ? bottom : y;
+			int y = roofedSurfaceY(world, north, x, z, startY, endY, bottom, pos, new byte[north.countVerticalSections()]);
+			return y < bottom ? NO_HEIGHT : y;
 		}
 		return north.getHeightmap(Heightmap.Type.WORLD_SURFACE).get(dx, 15) - 1;
 	}
@@ -167,22 +185,47 @@ public final class ChunkSampler {
 		return y;
 	}
 
+	/** Whether a section has nothing in it that could be see-through, so every column of it counts as solid. Cached per chunk. */
+	private static boolean sectionIsSolid(Chunk chunk, int index, byte[] cache) {
+		if (cache[index] == 0) {
+			cache[index] = (byte) (chunk.getSection(index).hasAny(ChunkSampler::mayBeSeeThrough) ? 2 : 1);
+		}
+		return cache[index] == 1;
+	}
+
 	/**
-	 * The floor of the highest open space below {@code startY}: skip down through solid blocks (the roof) to the
-	 * first air, then down through air to the first solid block. If there is no air at all the column is solid and
-	 * its top block is the surface. Returns a value below {@code bottom} if there is only air.
+	 * Air, anything else without a map colour, and fluids: the blocks a cave is made of. The colour of a block only
+	 * depends on its state, so no world is needed.
 	 */
-	private static int roofedSurfaceY(ClientWorld world, Chunk chunk, int x, int z, int startY, int bottom, BlockPos.Mutable pos) {
+	private static boolean mayBeSeeThrough(BlockState state) {
+		return state.isAir() || !state.getFluidState().isEmpty()
+			|| state.getMapColor(EmptyBlockView.INSTANCE, BlockPos.ORIGIN) == MapColor.CLEAR;
+	}
+
+	/**
+	 * The floor of the highest open space between {@code startY} and {@code endY}. Skips down through solid blocks to
+	 * the first open block (air, something see-through, or a fluid), then down through the open space to the first
+	 * block with a map colour, which is returned. If there is no open space in the range the column is solid there and
+	 * nothing is shown: the result is below {@code bottom}.
+	 */
+	private static int roofedSurfaceY(ClientWorld world, Chunk chunk, int x, int z, int startY, int endY, int bottom,
+		BlockPos.Mutable pos, byte[] solidSections) {
 		int y = startY;
-		while (y >= bottom) {
+		while (y >= endY) {
+			// A section made only of solid blocks is crossed in one step; most of the way down through rock is this.
+			int index = chunk.getSectionIndex(y);
+			if (sectionIsSolid(chunk, index, solidSections)) {
+				y = ChunkSectionPos.getBlockCoord(chunk.sectionIndexToCoord(index)) - 1;
+				continue;
+			}
 			BlockState state = chunk.getBlockState(pos.set(x, y, z));
-			if (state.getMapColor(world, pos) == MapColor.CLEAR) {
+			if (state.getMapColor(world, pos) == MapColor.CLEAR || !state.getFluidState().isEmpty()) {
 				break;
 			}
 			y--;
 		}
-		if (y < bottom) {
-			return startY; // solid from top to bottom
+		if (y < endY) {
+			return bottom - 1; // solid rock all the way: not a cave, so nothing to draw
 		}
 
 		while (y >= bottom) {

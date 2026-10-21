@@ -130,7 +130,7 @@ public final class MapUpdater {
 			}
 			int regionX = Math.floorDiv(pos.getStartX(), MapRegion.SIZE);
 			int regionZ = Math.floorDiv(pos.getStartZ(), MapRegion.SIZE);
-			ChunkSampler.sample(world, chunk, MapCache.regionForWrite(view, regionX, regionZ), !view.layer().equals(MapView.ROOF));
+			ChunkSampler.sample(world, chunk, MapCache.regionForWrite(view, regionX, regionZ), view);
 			processed++;
 		}
 	}

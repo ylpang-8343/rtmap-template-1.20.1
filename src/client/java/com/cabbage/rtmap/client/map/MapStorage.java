@@ -36,7 +36,9 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.server.integrated.IntegratedServer;
+import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.World;
 
 /**
  * Saves map tiles to <code>&lt;game dir&gt;/rtmap/maps/&lt;world&gt;/&lt;dimension&gt;/</code>: full-detail regions as
@@ -139,6 +141,36 @@ public final class MapStorage {
 	private static Path dimensionDir(MapView view) {
 		Path base = worldDir.resolve(sanitize(view.dimension().getValue().toString()));
 		return view.isDefault() ? base : base.resolve("layer-" + sanitize(view.layer()));
+	}
+
+	/**
+	 * The layers of a dimension, other than the default one, that have at least one tile saved. Reads the directory,
+	 * so call it rarely.
+	 */
+	public static Set<String> layersOnDisk(RegistryKey<World> dimension) {
+		Set<String> found = new HashSet<>();
+		if (worldDir == null) {
+			return found;
+		}
+		Path base = worldDir.resolve(sanitize(dimension.getValue().toString()));
+		if (!Files.isDirectory(base)) {
+			return found;
+		}
+		try (DirectoryStream<Path> layers = Files.newDirectoryStream(base, "layer-*")) {
+			for (Path layerDir : layers) {
+				if (!Files.isDirectory(layerDir)) {
+					continue;
+				}
+				try (DirectoryStream<Path> tiles = Files.newDirectoryStream(layerDir, "r.*.rtm")) {
+					if (tiles.iterator().hasNext()) {
+						found.add(layerDir.getFileName().toString().substring("layer-".length()));
+					}
+				}
+			}
+		} catch (IOException e) {
+			RTMap.LOGGER.warn("Could not list the map layers in {}", base, e);
+		}
+		return found;
 	}
 
 	private static Path file(MapView dimension, int level, int x, int z) {
