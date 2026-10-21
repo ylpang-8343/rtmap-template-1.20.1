@@ -5,11 +5,11 @@
 	"name": "RTMap",
 	"description": "A map mod for technical Minecraft players: slime chunks, portal linking, spawn ranges and chunk loading visualization.",
 	"authors": [
-		"Me!"
+		"CabbageNotDelicious"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"homepage": "https://github.com/ylpang-8343",
+		"sources": "https://github.com/ylpang-8343/rtmap-template-1.20.1"
 	},
 	"license": "CC0-1.0",
 	"icon": "assets/rtmap/icon.png",
